@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area, BarChart, Bar } from "recharts";
 import { otherFetch } from "../../hooks/otherFetch";
 import { AlertCircle, WifiOff, Wifi, RefreshCw, X, Activity, HardDrive, Database, Zap } from "lucide-react";
+import Sidebar from "../../components/Sidebar";
 
 const ConnectedDevices = () => {
     const [connectedDevices, setConnectedDevices] = useState([]);
@@ -120,6 +121,7 @@ const ConnectedDevices = () => {
 
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+             
                 <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
                     <div className="flex items-center justify-between bg-indigo-600 text-white px-6 py-4">
                         <h3 className="text-xl font-bold">{realTimeData.hostname || "Device Details"}</h3>
@@ -139,6 +141,7 @@ const ConnectedDevices = () => {
                                     <div className="flex justify-between">
                                         <span className="text-gray-600">IP Address:</span>
                                         <span className="font-mono text-indigo-700">{realTimeData.ip_address}</span>
+                                        
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-gray-600">MAC Address:</span>
@@ -369,9 +372,14 @@ const ConnectedDevices = () => {
     );
 
     return (
-        <div className="flex-1 p-8 overflow-hidden bg-gray-50">
+        <div className="flex flex-row overflow-hidden bg-gray-50 gap-10 w-full">
+            <Sidebar />
+
+        <div className="flex-1 overflow-hidden bg-gray-50 px-6">
             <div className="flex items-center mb-8">
+
                 <h1 className="text-3xl font-bold text-indigo-900">Connected Devices</h1>
+
                 <div className="ml-auto flex items-center bg-white rounded-full px-4 py-2 shadow-md border border-indigo-100">
                     <span className="h-3 w-3 rounded-full bg-green-500 mr-2 animate-pulse"></span>
                     <span className="text-sm font-medium text-gray-700">
@@ -531,6 +539,7 @@ const ConnectedDevices = () => {
             </div>
             
             {renderDeviceModal()}
+        </div>
         </div>
     );
 };

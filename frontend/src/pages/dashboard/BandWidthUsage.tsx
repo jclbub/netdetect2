@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import useFetch from "../../hooks/fetch.js";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { ArrowUpCircle, ArrowDownCircle, Activity, RefreshCw } from "lucide-react";
+import Sidebar from "../../components/Sidebar";
 
 const BandwidthUsage = () => {
   const [historyData, setHistoryData] = useState([]);
@@ -99,7 +100,9 @@ const BandwidthUsage = () => {
   const totalSent = data ? formatBytes(data.bytes_sent || 0) : '0 Bytes';
 
   return (
-    <div className="p-6 max-w-6xl mx-auto bg-gray-50 rounded-lg">
+    <div className="flex flex-row gap-5 w-full">
+      <Sidebar />
+    <div className="p-6 max-w-6xl mx-auto bg-gray-50 rounded-lg w-full flex flex-col gap-10 bg-[green] w-full">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
           <Activity className="text-blue-500" />
@@ -238,6 +241,7 @@ const BandwidthUsage = () => {
         <p>Auto-refreshing every {refreshInterval/1000} seconds</p>
         <p className="transition-opacity duration-300">Last updated: {new Date().toLocaleString()}</p>
       </div>
+    </div>
     </div>
   );
 };

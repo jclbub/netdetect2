@@ -6,18 +6,18 @@ import {
 import { auth } from "../pages/auth/firebase";
 import { signOut } from 'firebase/auth';
 
-const Sidebar = ({ onComponentChange }) => {
+const Sidebar = ({  }) => {
     const [active, setActive] = useState('Dashboard'); // Track active menu
     const [isLoggingOut, setIsLoggingOut] = useState(false);
 
     const menuItems = [
-        { name: "Dashboard", icon: <FaTachometerAlt /> },
-        { name: "Network Status", icon: <FaNetworkWired /> },
-        { name: "Connected Devices", icon: <FaMobileAlt /> },
-        { name: "Bandwidth Usage", icon: <FaChartLine /> },
-        { name: "Mac Filtering", icon: <FaFilter /> },
-        { name: "Notifications", icon: <FaBell /> },
-        { name: "Logs", icon: <FaClipboardList /> }
+        { name: "Dashboard", route: "/dashboard" , icon: <FaTachometerAlt /> },
+        { name: "Network Status", route: "network-status" , icon: <FaNetworkWired /> },
+        { name: "Connected Devices", route: "connected-devices" , icon: <FaMobileAlt /> },
+        { name: "Bandwidth Usage", route: "bandwidth-usage" , icon: <FaChartLine /> },
+        { name: "Mac Filtering", route: "mac-filtering" , icon: <FaFilter /> },
+        { name: "Notifications", route: "notifications" , icon: <FaBell /> },
+        { name: "Logs", route: "logs" , icon: <FaClipboardList /> }
     ];
 
     const handleLogout = async () => {
@@ -33,8 +33,13 @@ const Sidebar = ({ onComponentChange }) => {
         }
     };
 
+    const onComponentChange = (route) => {
+        console.log(route)
+        window.location.href = `/${route}`;
+    }
+ 
     return (
-        <div className="w-[16%] bg-white text-gray-800 p-6 h-screen shadow-md flex flex-col justify-between border-r border-gray-200">
+        <div className="w-[16%] bg-white text-gray-800 p-6 h-screen shadow-md flex flex-col justify-between border-r border-gray-200 z-10">
             {/* Logo / Brand */}
             <h2 className="text-2xl font-bold mb-8 text-center tracking-wide text-gray-700">NetDetect</h2>
 
@@ -45,7 +50,7 @@ const Sidebar = ({ onComponentChange }) => {
                         key={item.name} 
                         onClick={() => {
                             setActive(item.name);
-                            onComponentChange(item.name); // Call the prop to change the component
+                            onComponentChange(item.route); // Call the prop to change the component
                         }}
                         className={`flex items-center p-3 rounded-lg cursor-pointer transition-all duration-300 ${
                             active === item.name 

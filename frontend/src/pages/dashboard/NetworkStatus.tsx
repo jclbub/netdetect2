@@ -1,6 +1,7 @@
 import React from "react";
 import useFetch from "../../hooks/fetch.js";
 import { Network, Globe, Laptop, RefreshCw } from "lucide-react";
+import Sidebar from "../../components/Sidebar.js";
 
 const NetworkStatus = () => {
   const { data, loading, error, refetch } = useFetch('network-info');
@@ -11,6 +12,10 @@ const NetworkStatus = () => {
   };
 
   return (
+    <div className="flex h-screen bg-gradient-to-br w-full from-indigo-50 to-gray-100 overflow-hidden flex flex-row gap-20">
+
+    <Sidebar />
+
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Network Status</h1>
@@ -182,6 +187,7 @@ const NetworkStatus = () => {
       <div className="mt-6 text-sm text-gray-500">
         <p>Last updated: {new Date().toLocaleString()}</p>
       </div>
+    </div>
     </div>
   );
 };

@@ -1,0 +1,10 @@
+CREATE TABLE networks(
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    ip_address VARCHAR(20) UNIQUE,
+    mac_address VARCHAR(20),
+    hostname VARCHAR(255),
+    manufacturer VARCHAR(255),
+    device_type VARCHAR(255),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);

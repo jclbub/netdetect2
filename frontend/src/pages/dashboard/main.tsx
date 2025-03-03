@@ -41,7 +41,7 @@ const Dashboard = () => {
 
   // Use smooth fetch for all data endpoints
   const { data: speedData, error: speedError, loading: speedLoading, refetch: refetchSpeed } = useSmoothFetch("network-speed");
-  const { data: bandwidthData, error: bandwidthError, loading: bandwidthLoading, refetch: refetchBandwidth } = useSmoothFetch("bandwidth-usage");
+  const { data: bandwidthData, error: bandwidthError, loading: bandwidthLoading, refetch: refetchBandwidth } = useSmoothFetch("total-bandwidth-usage");
   const { data: connectedDevices, error: connectedError, loading: connectedLoading, refetch: refetchConnected } = otherFetch("connected-devices");
 
 
@@ -84,8 +84,8 @@ const Dashboard = () => {
       setBandwidthHistory(prevHistory => {
         const newHistory = [...prevHistory, {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          bytes_sent: bandwidthData.bytes_sent,
-          bytes_recv: bandwidthData.bytes_recv,
+          bytes_sent: bandwidthData.total_bytes_sent,
+          bytes_recv: bandwidthData.total_bytes_recv,
           // Add interpolation data for smoother transitions
           _smooth: true
         }];
@@ -277,7 +277,6 @@ const Dashboard = () => {
     
     return (
       <div className="relative flex flex-col items-center justify-center bg-white rounded-xl shadow-md h-full hover:shadow-lg overflow-hidden group">
-        {/* Header with gradient background */}
         <div className="w-full bg-gradient-to-r from-gray-800 to-gray-900 p-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-white">
             <Icon size={16} className="text-gray-200" />
@@ -366,9 +365,8 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-indigo-50 to-gray-100 overflow-hidden">
-
-      {/* Main Content */}
+    <div className="flex h-screen bg-gradient-to-br w-full from-indigo-50 to-gray-100 overflow-hidden flex flex-row gap-20">
+      <Sidebar />
       <div className="flex-grow flex flex-col p-6 overflow-y-auto">
         {/* Header with glass morphism effect */}
         <div className="bg-white bg-opacity-80 backdrop-filter backdrop-blur-lg rounded-xl shadow-sm p-5 mb-6 flex justify-between items-center hover:shadow-md">

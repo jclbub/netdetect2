@@ -250,6 +250,27 @@ def bandwidth_usage(interval: int = 1):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/total-bandwidth-usage")
+def total_bandwidth_usage():
+    """Get the total bandwidth usage of all network devices combined."""
+    try:
+        devices = psutil.net_io_counters(pernic=True)  # Get stats per network interface
+        
+        total_bytes_sent = sum(device.bytes_sent for device in devices.values())
+        total_bytes_recv = sum(device.bytes_recv for device in devices.values())
+
+        response = {
+            "total_bytes_sent": total_bytes_sent,
+            "total_bytes_recv": total_bytes_recv,
+            "total_mbps_sent": round((total_bytes_sent * 8) / 1_000_000, 2),  # Convert to Mbps
+            "total_mbps_recv": round((total_bytes_recv * 8) / 1_000_000, 2),  # Convert to Mbps
+        }
+
+        return response
+    except Exception as e:
+        return {"error": str(e)}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8000)

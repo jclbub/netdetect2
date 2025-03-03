@@ -8,13 +8,14 @@ from typing import Dict, Tuple
 import uvicorn
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from query import create_record, read_records, update_record, delete_record
 
 app = FastAPI()
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Allow your frontend origin
+    allow_origins=["http://localhost:5173"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,6 +31,10 @@ except Exception as e:
 # Cached devices and bandwidth tracking
 cached_devices = []
 bandwidth_stats: Dict[str, Dict] = {}
+
+
+
+
 
 @app.get("/connected-devices")
 async def get_connected_devices(background_tasks: BackgroundTasks):
@@ -122,25 +127,39 @@ def fetch_connected_devices():
                     "bandwidth_received": str(int(received_rate)),  # Just the number as string
                     "bandwidth_sent": str(int(sent_rate)),  # Just the number as string
                     "connection_type": connection_type,
-                    "status": "active" if ip_address in active_ips else "idle"
+                    "status": "idle" if ip_address in active_ips else "active"
+                })
+
+                create_record({
+                    "ip_address": ip_address,
+                    "mac_address": mac_address,
+                    "hostname": hostname,
+                    "manufacturer": manufacturer,
+                    "device_type": device_type,  
+                    "status": "idle" if ip_address in active_ips else "active"
                 })
             except Exception as e:
                 print(f"Error processing device {ip_address}: {e}")
-                # Still add the device with partial information
                 devices.append({
                     "ip_address": ip_address,
                     "mac_address": mac_address,
                     "hostname": "Unknown",
                     "manufacturer": "Unknown",
-                    "device_type": "unknown",  # Added device type
-                    "connections": connection_counts.get(ip_address, 0),
-                    "bandwidth_received": "0",
-                    "bandwidth_sent": "0",
+                    "device_type": "unknown",  
                     "connection_type": "unknown",
                     "status": "active" if ip_address in active_ips else "idle"
                 })
-        
-        # Only update the cache if we actually found devices
+
+                create_record({
+                    "ip_address": ip_address,
+                    "mac_address": mac_address,
+                    "hostname": "Unknown",
+                    "manufacturer": "Unknown",
+                    "device_type": "unknown",  
+                    "status": "active" if ip_address in active_ips else "idle"
+                })
+
+
         if devices:
             cached_devices = devices
 

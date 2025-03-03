@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Outlet } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import Home from "./pages/index/Home";
 import Dashboard from "./pages/dashboard/main";
@@ -13,28 +13,12 @@ const App = () => {
             <Routes>
                 {/* Home Page */}
                 <Route path="/" element={<Home />} />
-
-                {/* Dashboard Layout with Sidebar */}
-                <Route path="/dashboard/*" element={<DashboardLayout />} />
+                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/connected-devices" element={<ConnectedDevices />} />
+                <Route path="/network-status" element={<NetworkStatus />} />
+                <Route path="/bandwidth-usage" element={<BandwidthUsage />} />
             </Routes>
         </div>
-    );
-};
-
-// Wrapper for Dashboard Pages
-const DashboardLayout = () => {
-    return (
-        <>
-            <Sidebar />
-            <div style={{ marginLeft: "20px", flexGrow: 1 }}>
-                <Routes>
-                    <Route index element={<Dashboard />} />
-                    <Route path="network-status" element={<NetworkStatus />} />
-                    <Route path="connected-devices" element={<ConnectedDevices />} />
-                    <Route path="bandwidth-usage" element={<BandwidthUsage />} />
-                </Routes>
-            </div>
-        </>
     );
 };
 
