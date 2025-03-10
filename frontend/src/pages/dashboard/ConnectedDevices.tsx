@@ -375,12 +375,12 @@ const ConnectedDevices = () => {
         <div className="flex flex-row overflow-hidden bg-gray-50 gap-10 w-full">
             <Sidebar />
 
-        <div className="flex-1 overflow-hidden bg-gray-50 px-6">
-            <div className="flex items-center mb-8">
+            <div className="flex-1 bg-gray-50 sm:pr-[100px] pr-[20px] max-h-[95vh] overflow-y-auto">
+                <div className="flex items-center mb-8">
 
-                <h1 className="text-3xl font-bold text-indigo-900">Connected Devices</h1>
+                    <h1 className="text-3xl font-bold text-indigo-900">Connected Devices</h1>
 
-                <div className="ml-auto flex items-center bg-white rounded-full px-4 py-2 shadow-md border border-indigo-100">
+                    <div className="ml-auto flex items-center bg-white rounded-full px-4 py-2 shadow-md border border-indigo-100">
                     <span className="h-3 w-3 rounded-full bg-green-500 mr-2 animate-pulse"></span>
                     <span className="text-sm font-medium text-gray-700">
                         {connectedDevices.length} Active Devices
@@ -395,7 +395,7 @@ const ConnectedDevices = () => {
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:gap-6 sm:gap-4 mb-6 max-w-[80vw]">
                 <div className="bg-white rounded-xl shadow-lg p-6 border border-indigo-100">
                     <h2 className="text-xl font-semibold mb-4 text-gray-800">Connection Trends</h2>
                     <ResponsiveContainer width="100%" height={300}>
@@ -450,7 +450,7 @@ const ConnectedDevices = () => {
                     </ResponsiveContainer>
                 </div>
 
-                <div className="bg-white rounded-xl shadow-lg p-6 border border-indigo-100">
+                <div className="bg-white rounded-xl shadow-lg p-6 border border-indigo-100 ">
                     <h2 className="text-xl font-semibold mb-4 text-gray-800">Device Type Distribution</h2>
                     <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={[
@@ -489,7 +489,7 @@ const ConnectedDevices = () => {
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-indigo-100 mb-6">
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-indigo-100 mb-6 max-w-[80vw]">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-semibold text-gray-800">Device Inventory</h2>
                     <div className="flex border rounded-lg overflow-hidden">

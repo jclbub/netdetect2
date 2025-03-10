@@ -1,0 +1,18 @@
+{
+  "name": "netdetect2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "frontend": "cd frontend && npm run dev",
+    "backend": "cd backend && python app.py",
+    "devices": "cd backend && python connected_device.py",
+    "start": "concurrently \"npm run frontend\" \"npm run backend\" \"npm run devices\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
