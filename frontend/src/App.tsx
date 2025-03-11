@@ -6,6 +6,9 @@ import Dashboard from "./pages/dashboard/main";
 import ConnectedDevices from "./pages/dashboard/ConnectedDevices";
 import NetworkStatus from "./pages/dashboard/NetworkStatus";
 import BandwidthUsage from "./pages/dashboard/BandWidthUsage";
+import MacFiltering from "./pages/dashboard/MacFiltering";
+
+
 
 const App = () => {
     return (
@@ -17,6 +20,9 @@ const App = () => {
                 <Route path="/connected-devices" element={<ConnectedDevices />} />
                 <Route path="/network-status" element={<NetworkStatus />} />
                 <Route path="/bandwidth-usage" element={<BandwidthUsage />} />
+                <Route path="/mac-filtering" element={<MacFiltering />} />
+                {/* <Route path="/notifications" element={<Notifications />} />
+                <Route path="/logs" element={<Logs />} /> */}
             </Routes>
         </div>
     );

@@ -51,15 +51,15 @@ const ConnectedDevices = () => {
 
     useEffect(() => {
         if (data) {
+            console.log("Connected Devices Data:", data.connected_devices); // Log the data structure
             const enhancedDevices = data.connected_devices.map(device => ({
                 ...device,
                 lastSeen: new Date().toLocaleTimeString(),
                 signalStrength: Math.floor(Math.random() * 100),
-                // Make sure these are numbers for calculations
                 bandwidth_sent: parseInt(device.bandwidth_sent) || 0,
                 bandwidth_received: parseInt(device.bandwidth_received) || 0,
-                // Ensure these properties exist
-                connection_type: device.connection_type || "wireless",
+                // Set connection_type based on device_type
+                connection_type: (device.device_type === "PC" || device.device_type === "Desktop") ? "wired" : (device.connection_type || "unknown"),
                 status: device.status || "active"
             }));
             
@@ -68,7 +68,10 @@ const ConnectedDevices = () => {
             // Calculate wireless vs wired counts for the chart
             const wirelessCount = enhancedDevices.filter(d => d.connection_type === "wireless").length;
             const wiredCount = enhancedDevices.filter(d => d.connection_type === "wired").length;
-            
+
+            console.log("Wireless Count:", wirelessCount); // Log counts for debugging
+            console.log("Wired Count:", wiredCount);
+
             const currentTime = new Date();
             setDeviceHistory(prevHistory => [
                 ...prevHistory.slice(-24), // Keep last 24 data points
