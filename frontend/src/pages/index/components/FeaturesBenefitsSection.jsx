@@ -53,7 +53,7 @@ const FeaturesBenefitsSection = () => {
   return (
     <div className="w-full bg-gradient-to-b from-gray-50 to-white text-gray-800">
       {/* Hero Section */}
-      <div className="container mx-auto px-6 pt-20 pb-16 text-center">
+      <div className="container mx-auto px-6 pt-20 pb-16 text-center aboutInfo">
         <motion.h1 
           className="text-4xl md:text-5xl font-bold text-blue-700 mb-6"
           initial={{ opacity: 0, y: -20 }}
@@ -339,7 +339,7 @@ const FeaturesBenefitsSection = () => {
         </motion.h2>
 
         <motion.div
-          className="text-center max-w-2xl mx-auto mb-12"
+          className="text-center max-w-2xl mx-auto mb-12 contactUs"
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true, amount: 0.1 }}

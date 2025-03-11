@@ -22,12 +22,50 @@ function Navbar({login}) {
 
 	const handleLoginOpen = () => {
 		setIsLoginModalOpen(true);
-		login()
+		login();
 	};
 
 	const handleLoginClose = () => {
 		setIsLoginModalOpen(false);
 	};
+
+	const scrollHome = (e) => {
+		e.preventDefault();
+		const aboutSection = document.querySelector(".homePage");
+		if (aboutSection) {
+			aboutSection.scrollIntoView({ behavior: "smooth" });
+			// Close mobile menu if it's open
+			if (isMobileMenuOpen) {
+				setIsMobileMenuOpen(false);
+			}
+		}
+	};
+	
+	const scrollToAbout = (e) => {
+		e.preventDefault();
+		const aboutSection = document.querySelector(".aboutInfo");
+		if (aboutSection) {
+			aboutSection.scrollIntoView({ behavior: "smooth" });
+			// Close mobile menu if it's open
+			if (isMobileMenuOpen) {
+				setIsMobileMenuOpen(false);
+			}
+		}
+	};
+
+	const scrollContact = (e) => {
+		e.preventDefault();
+		const aboutSection = document.querySelector(".contactUs");
+		if (aboutSection) {
+			aboutSection.scrollIntoView({ behavior: "smooth" });
+			// Close mobile menu if it's open
+			if (isMobileMenuOpen) {
+				setIsMobileMenuOpen(false);
+			}
+		}
+	};
+
+
 
 	return (
 		<>
@@ -54,31 +92,34 @@ function Navbar({login}) {
 					} lg:flex lg:gap-[5rem] items-center absolute lg:static bg-white w-full lg:w-auto left-0 top-[4.5rem] lg:top-auto px-6 py-4 lg:p-0 shadow-md lg:shadow-none transition-all duration-300 ease-in-out`}
 				>
 					<li className="py-2 lg:py-0">
-						<Link
-							to="/"
+						<a
+							href="#home"
+							onClick={scrollHome}
 							className="flex items-center gap-4 text-[1.1rem] hover:text-[#1d4ed8] transition duration-300 relative after:content-[''] after:absolute after:bottom-[-4px] after:left-0 after:w-0 after:h-[2px] after:bg-[#1d4ed8] hover:after:w-full after:transition-width after:duration-500"
 						>
 							<FontAwesomeIcon icon={faHome} />
 							Home
-						</Link>
+						</a>
 					</li>
 					<li className="py-2 lg:py-0">
-						<Link
-							to="/about"
+						<a
+							href="#aboutInfo"
+							onClick={scrollToAbout}
 							className="flex items-center gap-4 text-[1.1rem] hover:text-[#1d4ed8] transition duration-300 relative after:content-[''] after:absolute after:bottom-[-4px] after:left-0 after:w-0 after:h-[2px] after:bg-[#1d4ed8] hover:after:w-full after:transition-width after:duration-500"
 						>
 							<FontAwesomeIcon icon={faInfoCircle} />
 							About Us
-						</Link>
+						</a>
 					</li>
 					<li className="py-2 lg:py-0">
-						<Link
-							to="/contact"
+						<a
+							href="#contactUs"
+							onClick={scrollContact}
 							className="flex items-center gap-4 text-[1.1rem] hover:text-[#1d4ed8] transition duration-300 relative after:content-[''] after:absolute after:bottom-[-4px] after:left-0 after:w-0 after:h-[2px] after:bg-[#1d4ed8] hover:after:w-full after:transition-width after:duration-500"
 						>
 							<FontAwesomeIcon icon={faPhone} />
 							Contact
-						</Link>
+						</a>
 					</li>
 
 					{/* Buttons for Mobile */}

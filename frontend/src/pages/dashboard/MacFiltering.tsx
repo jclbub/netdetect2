@@ -10,6 +10,8 @@ const MacFiltering = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedDevices, setSelectedDevices] = useState([]);
     const [blockMode, setBlockMode] = useState("allow"); // "allow" or "block"
+    const [blockedDevices, setBlockedDevices] = useState([]);
+    const [allowedDevices, setAllowedDevices] = useState([]);
     const { data, error, loading, refetch } = otherFetch("connected-devices");
 
     // Use the same data fetching approach as in ConnectedDevices.tsx
@@ -30,23 +32,40 @@ const MacFiltering = () => {
             }));
             
             setConnectedDevices(enhancedDevices);
-            setFilteredDevices(enhancedDevices);
+            // Initially mark all devices as allowed
+            setAllowedDevices(enhancedDevices.map(device => device.id));
             setIsLoading(false);
         }
     }, [data]);
 
+    // Filter devices based on search criteria and current mode
     useEffect(() => {
+        let filtered = connectedDevices;
+        
+        // First filter by search term if present
         if (macFilter) {
-            const filtered = connectedDevices.filter(device =>
+            filtered = filtered.filter(device =>
                 device.hostname.toLowerCase().includes(macFilter.toLowerCase()) ||
                 device.mac_address.toLowerCase().includes(macFilter.toLowerCase()) ||
                 device.ip_address.toLowerCase().includes(macFilter.toLowerCase())
             );
-            setFilteredDevices(filtered);
-        } else {
-            setFilteredDevices(connectedDevices);
         }
-    }, [macFilter, connectedDevices]);
+        
+        // Then filter by current mode
+        if (blockMode === "allow") {
+            // In allow mode, show only allowed devices
+            filtered = filtered.filter(device => 
+                allowedDevices.includes(device.id)
+            );
+        } else {
+            // In block mode, show only blocked devices
+            filtered = filtered.filter(device => 
+                blockedDevices.includes(device.id)
+            );
+        }
+        
+        setFilteredDevices(filtered);
+    }, [macFilter, connectedDevices, blockMode, allowedDevices, blockedDevices]);
 
     const toggleDeviceSelection = (deviceId) => {
         setSelectedDevices(prev => 
@@ -79,6 +98,92 @@ const MacFiltering = () => {
         return date.setHours(0, 0, 0, 0) === today.setHours(0, 0, 0, 0);
     };
 
+    const isDeviceBlocked = (deviceId) => {
+        return blockedDevices.includes(deviceId);
+    };
+
+    const isDeviceAllowed = (deviceId) => {
+        return allowedDevices.includes(deviceId);
+    };
+
+    const getDeviceAccessStatus = (deviceId) => {
+        if (isDeviceAllowed(deviceId)) {
+            return "allowed";
+        } else if (isDeviceBlocked(deviceId)) {
+            return "blocked";
+        } else {
+            // Default to blocked in "allow" mode and allowed in "block" mode
+            return blockMode === "allow" ? "blocked" : "allowed";
+        }
+    };
+
+    const handleApplyRules = () => {
+        if (selectedDevices.length === 0) return;
+        
+        if (blockMode === "y") {
+            // Add selected devices to allowed list
+            setAllowedDevices(prev => {
+                const newAllowed = [...prev];
+                selectedDevices.forEach(id => {
+                    if (!newAllowed.includes(id)) {
+                        newAllowed.push(id);
+                    }
+                });
+                return newAllowed;
+            });
+            // Remove from blocked list if they were there
+            setBlockedDevices(prev => 
+                prev.filter(id => !selectedDevices.includes(id))
+            );
+        } else {
+            // Add selected devices to blocked list
+            setBlockedDevices(prev => {
+                const newBlocked = [...prev];
+                selectedDevices.forEach(id => {
+                    if (!newBlocked.includes(id)) {
+                        newBlocked.push(id);
+                    }
+                });
+                return newBlocked;
+            });
+            // Remove from allowed list if they were there
+            setAllowedDevices(prev => 
+                prev.filter(id => !selectedDevices.includes(id))
+            );
+        }
+        
+        // Clear selection after applying rules
+        setSelectedDevices([]);
+    };
+
+    const toggleDeviceAccess = (deviceId) => {
+        const currentStatus = getDeviceAccessStatus(deviceId);
+        
+        if (currentStatus === "allowed") {
+            // Remove from allowed list
+            setAllowedDevices(prev => prev.filter(id => id !== deviceId));
+            // Add to blocked list
+            setBlockedDevices(prev => [...prev, deviceId]);
+        } else {
+            // Remove from blocked list
+            setBlockedDevices(prev => prev.filter(id => id !== deviceId));
+            // Add to allowed list
+            setAllowedDevices(prev => [...prev, deviceId]);
+        }
+    };
+
+    // Handle mode change
+    const handleModeChange = (mode) => {
+        setBlockMode(mode);
+        // Clear selection when changing modes
+        setSelectedDevices([]);
+    };
+
+    // Get counts for status bar
+    const getAllowedCount = () => allowedDevices.length;
+    const getBlockedCount = () => blockedDevices.length;
+    const getTotalCount = () => connectedDevices.length;
+
     return (
         <div className="relative flex flex-row w-full bg-gray-50 min-h-screen">
             <Sidebar />
@@ -107,15 +212,15 @@ const MacFiltering = () => {
                             <div className="flex rounded-md shadow-sm overflow-hidden">
                                 <button 
                                     className={`px-4 py-2 text-sm font-medium border ${blockMode === 'allow' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                                    onClick={() => setBlockMode('allow')}
+                                    onClick={() => handleModeChange('allow')}
                                 >
-                                    Allow Listed
+                                    Allow Listed ({getAllowedCount()})
                                 </button>
                                 <button 
                                     className={`px-4 py-2 text-sm font-medium border ${blockMode === 'block' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                                    onClick={() => setBlockMode('block')}
+                                    onClick={() => handleModeChange('block')}
                                 >
-                                    Block Listed
+                                    Block Listed ({getBlockedCount()})
                                 </button>
                             </div>
                         </div>
@@ -139,6 +244,7 @@ const MacFiltering = () => {
                             <div className="flex space-x-2">
                                 <button 
                                     disabled={selectedDevices.length === 0}
+                                    onClick={handleApplyRules}
                                     className={`px-4 py-2 rounded-md text-sm font-medium ${selectedDevices.length > 0 ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-500 cursor-not-allowed'} transition-colors`}
                                 >
                                     {blockMode === 'allow' ? 'Allow Selected' : 'Block Selected'}
@@ -196,62 +302,72 @@ const MacFiltering = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {filteredDevices.map(device => (
-                                        <tr key={device.id} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <input
-                                                    type="checkbox"
-                                                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                                    checked={selectedDevices.includes(device.id)}
-                                                    onChange={() => toggleDeviceSelection(device.id)}
-                                                />
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                    <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
-                                                        {device.status === 'active' ? (
-                                                            <Wifi size={16} className="text-green-600" />
-                                                        ) : (
-                                                            <WifiOff size={16} className="text-gray-500" />
-                                                        )}
+                                    {filteredDevices.map(device => {
+                                        const accessStatus = blockMode === "allow" ? "allowed" : "blocked";
+                                        return (
+                                            <tr key={device.id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                                        checked={selectedDevices.includes(device.id)}
+                                                        onChange={() => toggleDeviceSelection(device.id)}
+                                                    />
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="flex items-center">
+                                                        <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
+                                                            {device.status === 'active' ? (
+                                                                <Wifi size={16} className="text-green-600" />
+                                                            ) : (
+                                                                <WifiOff size={16} className="text-gray-500" />
+                                                            )}
+                                                        </div>
+                                                        <div className="ml-4">
+                                                            <div className="text-sm font-medium text-gray-900">{device.hostname}</div>
+                                                            <div className="text-xs text-gray-500">{device.device_type}</div>
+                                                        </div>
                                                     </div>
-                                                    <div className="ml-4">
-                                                        <div className="text-sm font-medium text-gray-900">{device.hostname}</div>
-                                                        <div className="text-xs text-gray-500">{device.device_type}</div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="text-sm font-mono text-gray-900">{device.mac_address}</div>
+                                                    <div className="text-xs text-gray-500">{device.manufacturer}</div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="text-sm font-mono text-gray-900">{device.ip_address}</div>
+                                                    <div className="text-xs text-gray-500">{device.connection_type}</div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="flex items-center">
+                                                        <Clock size={14} className="text-gray-400 mr-1" />
+                                                        <div className="text-sm text-gray-500">
+                                                            {isToday(device.last_seen) ? 
+                                                                `Today at ${formatTime(device.last_seen)}` : 
+                                                                formatDate(device.last_seen)
+                                                            }
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm font-mono text-gray-900">{device.mac_address}</div>
-                                                <div className="text-xs text-gray-500">{device.manufacturer}</div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm font-mono text-gray-900">{device.ip_address}</div>
-                                                <div className="text-xs text-gray-500">{device.connection_type}</div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                    <Clock size={14} className="text-gray-400 mr-1" />
-                                                    <div className="text-sm text-gray-500">
-                                                        {isToday(device.last_seen) ? 
-                                                            `Today at ${formatTime(device.last_seen)}` : 
-                                                            formatDate(device.last_seen)
-                                                        }
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                    {device.status === 'active' ? 'Online' : 'Offline'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                <button className={`px-3 py-1 rounded text-xs font-medium ${blockMode === 'allow' ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-red-100 text-red-800 hover:bg-red-200'} transition-colors`}>
-                                                    {blockMode === 'allow' ? 'Allow' : 'Block'}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                        {device.status === 'active' ? 'Online' : 'Offline'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    <button 
+                                                        onClick={() => toggleDeviceAccess(device.id)}
+                                                        className={`px-3 py-1 rounded text-xs font-medium ${
+                                                            accessStatus === 'allowed' 
+                                                                ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                                                                : 'bg-red-100 text-red-800 hover:bg-red-200'
+                                                        } transition-colors`}
+                                                    >
+                                                        {accessStatus === 'allowed' ? 'Allow' : 'Block'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -260,24 +376,41 @@ const MacFiltering = () => {
                             <div className="mx-auto h-12 w-12 rounded-full bg-gray-200 flex items-center justify-center mb-4">
                                 <Info size={24} className="text-gray-400" />
                             </div>
-                            <p>No devices found matching your search.</p>
-                            <button 
-                                onClick={() => setMacFilter("")} 
-                                className="mt-2 text-indigo-600 hover:text-indigo-800"
-                            >
-                                Clear search
-                            </button>
+                            <p>
+                                {macFilter 
+                                    ? "No devices found matching your search." 
+                                    : blockMode === "allow" 
+                                        ? "No devices in the allow list." 
+                                        : "No devices in the block list."
+                                }
+                            </p>
+                            {macFilter && (
+                                <button 
+                                    onClick={() => setMacFilter("")} 
+                                    className="mt-2 text-indigo-600 hover:text-indigo-800"
+                                >
+                                    Clear search
+                                </button>
+                            )}
                         </div>
                     )}
 
                     {/* Footer with info */}
                     <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
-                        <div className="flex items-center text-sm text-gray-500">
-                            <Info size={16} className="mr-2 text-indigo-500" />
-                            {blockMode === 'allow' ? 
-                                "Only devices on the allowlist can connect to your network." : 
-                                "All devices can connect except those on the blocklist."
-                            }
+                        <div className="flex items-center justify-between text-sm text-gray-500">
+                            <div className="flex items-center">
+                                <Info size={16} className="mr-2 text-indigo-500" />
+                                {blockMode === 'allow' ? 
+                                    "Only devices on the allowlist can connect to your network." : 
+                                    "All devices can connect except those on the blocklist."
+                                }
+                            </div>
+                            <div>
+                                {blockMode === 'allow' 
+                                    ? `${getAllowedCount()} of ${getTotalCount()} devices allowed` 
+                                    : `${getBlockedCount()} of ${getTotalCount()} devices blocked`
+                                }
+                            </div>
                         </div>
                     </div>
                 </div>
