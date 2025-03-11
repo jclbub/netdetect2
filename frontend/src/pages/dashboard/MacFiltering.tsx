@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
 import { Search, Wifi, WifiOff, Info, Shield, Clock, RefreshCw } from "lucide-react";
+import { otherFetch } from "../../hooks/otherFetch";
 
 const MacFiltering = () => {
     const [connectedDevices, setConnectedDevices] = useState([]);
@@ -9,23 +10,30 @@ const MacFiltering = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [selectedDevices, setSelectedDevices] = useState([]);
     const [blockMode, setBlockMode] = useState("allow"); // "allow" or "block"
+    const { data, error, loading, refetch } = otherFetch("connected-devices");
 
-    // Mock data for demonstration
+    // Use the same data fetching approach as in ConnectedDevices.tsx
     useEffect(() => {
-        // Simulating API fetch
-        setTimeout(() => {
-            const mockDevices = [
-                { id: 1, hostname: "Living Room TV", mac_address: "A1:B2:C3:D4:E5:F6", ip_address: "192.168.1.101", last_seen: "2025-03-10T15:30:00", status: "online" },
-                { id: 2, hostname: "John's Laptop", mac_address: "F1:E2:D3:C4:B5:A6", ip_address: "192.168.1.102", last_seen: "2025-03-10T15:28:00", status: "online" },
-                { id: 3, hostname: "Kitchen Tablet", mac_address: "1A:2B:3C:4D:5E:6F", ip_address: "192.168.1.103", last_seen: "2025-03-10T14:15:00", status: "online" },
-                { id: 4, hostname: "Sarah's Phone", mac_address: "6F:5E:4D:3C:2B:1A", ip_address: "192.168.1.104", last_seen: "2025-03-10T13:45:00", status: "offline" },
-                { id: 5, hostname: "Office Printer", mac_address: "AA:BB:CC:DD:EE:FF", ip_address: "192.168.1.105", last_seen: "2025-03-09T17:30:00", status: "offline" },
-            ];
-            setConnectedDevices(mockDevices);
-            setFilteredDevices(mockDevices);
+        if (data) {
+            const enhancedDevices = data.connected_devices.map((device, index) => ({
+                id: index + 1,
+                hostname: device.hostname || "Unknown Device",
+                mac_address: device.mac_address,
+                ip_address: device.ip_address,
+                last_seen: new Date().toISOString(),
+                status: device.status || "active",
+                manufacturer: device.manufacturer,
+                device_type: device.device_type,
+                connection_type: device.connection_type || "wireless",
+                bandwidth_sent: parseInt(device.bandwidth_sent) || 0,
+                bandwidth_received: parseInt(device.bandwidth_received) || 0
+            }));
+            
+            setConnectedDevices(enhancedDevices);
+            setFilteredDevices(enhancedDevices);
             setIsLoading(false);
-        }, 1000);
-    }, []);
+        }
+    }, [data]);
 
     useEffect(() => {
         if (macFilter) {
@@ -50,10 +58,9 @@ const MacFiltering = () => {
 
     const handleRefresh = () => {
         setIsLoading(true);
-        // In a real app, you would fetch new data here
-        setTimeout(() => {
-            setIsLoading(false);
-        }, 1000);
+        refetch().finally(() => {
+            setTimeout(() => setIsLoading(false), 500);
+        });
     };
 
     const formatTime = (dateString) => {
@@ -85,7 +92,7 @@ const MacFiltering = () => {
                                 onClick={handleRefresh} 
                                 className="p-2 bg-indigo-700 rounded-full text-white hover:bg-indigo-800 transition-colors"
                             >
-                                <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
+                                <RefreshCw size={18} className={isLoading || loading ? "animate-spin" : ""} />
                             </button>
                         </div>
                     </div>
@@ -141,12 +148,25 @@ const MacFiltering = () => {
                     </div>
 
                     {/* Device list */}
-                    {isLoading ? (
+                    {(isLoading || loading) ? (
                         <div className="py-12 flex justify-center items-center">
                             <div className="animate-pulse text-center">
                                 <div className="mx-auto h-12 w-12 rounded-full bg-indigo-200 mb-4"></div>
                                 <div className="h-4 bg-indigo-100 rounded w-32 mx-auto"></div>
                             </div>
+                        </div>
+                    ) : error ? (
+                        <div className="py-12 text-center text-red-500">
+                            <div className="mx-auto h-12 w-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                                <Info size={24} className="text-red-400" />
+                            </div>
+                            <p>Error loading devices: {error.message || "Unknown error"}</p>
+                            <button 
+                                onClick={handleRefresh} 
+                                className="mt-2 text-indigo-600 hover:text-indigo-800"
+                            >
+                                Try again
+                            </button>
                         </div>
                     ) : filteredDevices.length > 0 ? (
                         <div className="overflow-x-auto">
@@ -188,8 +208,8 @@ const MacFiltering = () => {
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="flex items-center">
-                                                    <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'online' ? 'bg-green-100' : 'bg-gray-100'}`}>
-                                                        {device.status === 'online' ? (
+                                                    <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
+                                                        {device.status === 'active' ? (
                                                             <Wifi size={16} className="text-green-600" />
                                                         ) : (
                                                             <WifiOff size={16} className="text-gray-500" />
@@ -197,14 +217,17 @@ const MacFiltering = () => {
                                                     </div>
                                                     <div className="ml-4">
                                                         <div className="text-sm font-medium text-gray-900">{device.hostname}</div>
+                                                        <div className="text-xs text-gray-500">{device.device_type}</div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="text-sm font-mono text-gray-900">{device.mac_address}</div>
+                                                <div className="text-xs text-gray-500">{device.manufacturer}</div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="text-sm font-mono text-gray-900">{device.ip_address}</div>
+                                                <div className="text-xs text-gray-500">{device.connection_type}</div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="flex items-center">
@@ -218,8 +241,8 @@ const MacFiltering = () => {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === 'online' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                    {device.status === 'online' ? 'Online' : 'Offline'}
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                    {device.status === 'active' ? 'Online' : 'Offline'}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
