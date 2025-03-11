@@ -120,7 +120,7 @@ const MacFiltering = () => {
     const handleApplyRules = () => {
         if (selectedDevices.length === 0) return;
         
-        if (blockMode === "y") {
+        if (blockMode === "allow") {
             // Add selected devices to allowed list
             setAllowedDevices(prev => {
                 const newAllowed = [...prev];
@@ -157,17 +157,16 @@ const MacFiltering = () => {
     };
 
     const toggleDeviceAccess = (deviceId) => {
-        const currentStatus = getDeviceAccessStatus(deviceId);
-        
-        if (currentStatus === "allowed") {
-            // Remove from allowed list
+        // Direct toggle implementation - immediately switch the device status
+        if (blockMode === "allow") {
+            // In allow mode, we're viewing allowed devices
+            // Remove the device from allowed and add to blocked
             setAllowedDevices(prev => prev.filter(id => id !== deviceId));
-            // Add to blocked list
             setBlockedDevices(prev => [...prev, deviceId]);
         } else {
-            // Remove from blocked list
+            // In block mode, we're viewing blocked devices
+            // Remove the device from blocked and add to allowed
             setBlockedDevices(prev => prev.filter(id => id !== deviceId));
-            // Add to allowed list
             setAllowedDevices(prev => [...prev, deviceId]);
         }
     };
@@ -302,72 +301,69 @@ const MacFiltering = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {filteredDevices.map(device => {
-                                        const accessStatus = blockMode === "allow" ? "allowed" : "blocked";
-                                        return (
-                                            <tr key={device.id} className="hover:bg-gray-50">
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <input
-                                                        type="checkbox"
-                                                        className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                                        checked={selectedDevices.includes(device.id)}
-                                                        onChange={() => toggleDeviceSelection(device.id)}
-                                                    />
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="flex items-center">
-                                                        <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
-                                                            {device.status === 'active' ? (
-                                                                <Wifi size={16} className="text-green-600" />
-                                                            ) : (
-                                                                <WifiOff size={16} className="text-gray-500" />
-                                                            )}
-                                                        </div>
-                                                        <div className="ml-4">
-                                                            <div className="text-sm font-medium text-gray-900">{device.hostname}</div>
-                                                            <div className="text-xs text-gray-500">{device.device_type}</div>
-                                                        </div>
+                                    {filteredDevices.map(device => (
+                                        <tr key={device.id} className="hover:bg-gray-50">
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                                    checked={selectedDevices.includes(device.id)}
+                                                    onChange={() => toggleDeviceSelection(device.id)}
+                                                />
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="flex items-center">
+                                                    <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
+                                                        {device.status === 'active' ? (
+                                                            <Wifi size={16} className="text-green-600" />
+                                                        ) : (
+                                                            <WifiOff size={16} className="text-gray-500" />
+                                                        )}
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="text-sm font-mono text-gray-900">{device.mac_address}</div>
-                                                    <div className="text-xs text-gray-500">{device.manufacturer}</div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="text-sm font-mono text-gray-900">{device.ip_address}</div>
-                                                    <div className="text-xs text-gray-500">{device.connection_type}</div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="flex items-center">
-                                                        <Clock size={14} className="text-gray-400 mr-1" />
-                                                        <div className="text-sm text-gray-500">
-                                                            {isToday(device.last_seen) ? 
-                                                                `Today at ${formatTime(device.last_seen)}` : 
-                                                                formatDate(device.last_seen)
-                                                            }
-                                                        </div>
+                                                    <div className="ml-4">
+                                                        <div className="text-sm font-medium text-gray-900">{device.hostname}</div>
+                                                        <div className="text-xs text-gray-500">{device.device_type}</div>
                                                     </div>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                        {device.status === 'active' ? 'Online' : 'Offline'}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                    <button 
-                                                        onClick={() => toggleDeviceAccess(device.id)}
-                                                        className={`px-3 py-1 rounded text-xs font-medium ${
-                                                            accessStatus === 'allowed' 
-                                                                ? 'bg-green-100 text-green-800 hover:bg-green-200' 
-                                                                : 'bg-red-100 text-red-800 hover:bg-red-200'
-                                                        } transition-colors`}
-                                                    >
-                                                        {accessStatus === 'allowed' ? 'Allow' : 'Block'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="text-sm font-mono text-gray-900">{device.mac_address}</div>
+                                                <div className="text-xs text-gray-500">{device.manufacturer}</div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="text-sm font-mono text-gray-900">{device.ip_address}</div>
+                                                <div className="text-xs text-gray-500">{device.connection_type}</div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <div className="flex items-center">
+                                                    <Clock size={14} className="text-gray-400 mr-1" />
+                                                    <div className="text-sm text-gray-500">
+                                                        {isToday(device.last_seen) ? 
+                                                            `Today at ${formatTime(device.last_seen)}` : 
+                                                            formatDate(device.last_seen)
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                    {device.status === 'active' ? 'Online' : 'Offline'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                <button 
+                                                    onClick={() => toggleDeviceAccess(device.id)}
+                                                    className={`px-3 py-1 rounded text-xs font-medium ${
+                                                        blockMode === 'allow' 
+                                                            ? 'bg-red-100 text-red-800 hover:bg-red-200' 
+                                                            : 'bg-green-100 text-green-800 hover:bg-green-200'
+                                                    } transition-colors`}
+                                                >
+                                                    {blockMode === 'allow' ? 'Block' : 'Allow'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
                                 </tbody>
                             </table>
                         </div>
