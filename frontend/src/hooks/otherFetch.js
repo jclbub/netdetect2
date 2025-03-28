@@ -11,7 +11,7 @@ export const otherFetch = (link, interval = 2000) => {
 
         const fetchData = async () => {
             try {
-                const res = await axios.get(`${import.meta.env.VITE_API1}${link}`);
+                const res = await axios.get(`${import.meta.env.VITE_API}${link}`);
                 if (isMounted) {
                     setData(res.data);
                     setError(null);

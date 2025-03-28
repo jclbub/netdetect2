@@ -32,10 +32,6 @@ except Exception as e:
 cached_devices = []
 bandwidth_stats: Dict[str, Dict] = {}
 
-
-
-
-
 @app.get("/connected-devices")
 async def get_connected_devices(background_tasks: BackgroundTasks):
     global cached_devices
@@ -87,14 +83,11 @@ def fetch_connected_devices():
                     connection_counts[local_ip] = 0
                 connection_counts[local_ip] += 1
                 active_ips.add(local_ip)
-
         # Update bandwidth stats
         current_time = time.time()
         update_bandwidth_stats(current_time)
-        
         # Build device list
         devices = []
-        
         # Add devices from ARP table (local network)
         for ip_address, mac_address in ip_mac_map.items():
             try:
@@ -121,11 +114,10 @@ def fetch_connected_devices():
                     "mac_address": mac_address,
                     "hostname": hostname,
                     "manufacturer": manufacturer,
-                    "device_type": device_type,  # Added device type
+                    "device_type": device_type, 
                     "connections": connection_counts.get(ip_address, 0),
-                    # Match frontend format - remove "/s" and units for frontend processing
-                    "bandwidth_received": str(int(received_rate)),  # Just the number as string
-                    "bandwidth_sent": str(int(sent_rate)),  # Just the number as string
+                    "bandwidth_received": str(int(received_rate)),
+                    "bandwidth_sent": str(int(sent_rate)), 
                     "connection_type": connection_type,
                     "status": "idle" if ip_address in active_ips else "active"
                 })
@@ -165,7 +157,6 @@ def fetch_connected_devices():
 
     except Exception as e:
         print(f"Error fetching connected devices: {e}")
-        # Don't update the cache if there was an error
 
 def determine_device_type(manufacturer, mac_address, hostname):
     """
@@ -302,26 +293,103 @@ def hostname_contains(hostname, keywords):
     return False
 
 def is_wireless_device(mac_address):
-    # Safely handle any format issues with MAC addresses
+    """
+    Determine if a device is wireless or wired based on MAC address, OUI prefixes,
+    and additional heuristics.
+    
+    Args:
+        mac_address (str): The MAC address of the device
+        
+    Returns:
+        bool: True if the device is likely wireless, False if likely wired
+    """
+    if not mac_address or len(mac_address) < 8:
+        return False
+        
     try:
-        # This is a simplified approach - in real implementations, 
-        # you might want to use a more sophisticated detection method
+        # Normalize MAC address format
+        mac = mac_address.upper().replace("-", ":")
+        
+        # Common wireless device manufacturer OUI prefixes
         wireless_prefixes = [
-            "00:1A:2B", "00:17:FA",  
-            "F0:1F:AF", "00:22:6B",  
-            "00:0D:93", "5C:F3:70",  
-            "E8:2A:EA",              
-            "00:26:AB", "04:18:D6"   
+            # Common WiFi adapters and mobile devices
+            "00:1A:2B", "00:17:FA", "F0:1F:AF", "00:22:6B", "00:0D:93", "5C:F3:70", "E8:2A:EA", 
+            "00:26:AB", "04:18:D6", "78:31:C1", "3C:71:BF", "D0:E1:40", "70:56:81", "28:CF:DA",
+            
+            # Apple wireless devices (iPhones, iPads, MacBooks)
+            "34:AB:37", "A8:BB:CF", "00:DB:70", "A4:B1:97", "A8:5C:2C", "70:DE:E2", "90:B0:ED",
+            "20:A2:E4", "28:6A:B8", "98:9E:63", "88:19:08", "38:F9:D3", "BC:92:6B", "68:96:7B",
+            
+            # Samsung mobile devices
+            "8C:F5:A3", "B4:3A:28", "78:BD:BC", "A0:21:95", "84:38:35", "50:01:BB", "C8:14:79", 
+            "14:49:E0", "94:35:0A", "F8:3F:51", "18:89:5B", "2C:AE:2B", "C4:57:6E", "68:27:37",
+            
+            # Google devices (Pixel phones, Chromebooks)
+            "00:1A:11", "AC:67:B2", "3C:5A:B4", "48:D6:D5", "54:60:09", "94:EB:2C", "A4:77:33",
+            
+            # Intel wireless adapters
+            "00:08:9F", "00:13:E8", "00:13:02", "00:15:00", "00:16:EA", "00:1C:BF", "00:1D:E1",
+            "00:1E:64", "00:1E:65", "00:1F:3B", "00:21:5C", "00:21:5D", "00:22:FB", "00:24:D7",
+            
+            # Broadcom wireless 
+            "00:10:18", "00:0A:F7", "00:1A:73", "00:25:00", "D4:01:29", "B0:26:28", "20:76:8F",
+            
+            # Qualcomm Atheros
+            "00:03:7F", "00:13:74", "00:1D:6A", "00:24:33", "00:26:5E", "28:80:23", "D8:C7:C8",
+            
+            # Xiaomi, OnePlus, and other Android devices
+            "64:A2:F9", "8C:BE:BE", "F8:A4:5F", "28:6C:07", "C4:0B:CB", "C0:EE:FB", "50:64:2B",
+            
+            # Laptop manufacturers' common wireless interfaces
+            "18:4F:32", "70:1C:E7", "68:A3:C4", "94:B8:6D", "54:35:30", "D4:25:8B", "04:0E:3C"
         ]
         
         for prefix in wireless_prefixes:
-            if mac_address and mac_address.upper().startswith(prefix):
+            if mac.startswith(prefix):
                 return True
         
-        # Default to 50/50 chance for demonstration purposes
-        return bool(hash(mac_address) % 2)
-    except Exception:
-        # Default to wired if we can't determine
+        wired_prefixes = [
+            # Common network equipment
+            "00:01:42", "00:04:00", "00:0D:88", "00:0E:08", "00:11:11", "00:14:BF", "00:15:E8",
+            "00:18:AE", "00:1A:4D", "00:1B:78", "00:21:19", "00:21:A0", "00:26:99", "00:E0:4C",
+            
+            # Cisco switches and routers
+            "00:16:C7", "00:17:0E", "00:18:18", "00:1A:2F", "00:1A:A1", "00:1B:53", "00:1B:D4",
+            "00:1C:57", "00:1C:58", "00:1D:E5", "00:1E:BD", "00:1F:C9", "00:1F:CA", "00:21:29",
+            
+            # Server NICs
+            "00:15:17", "00:17:A4", "00:1A:92", "00:1B:21", "00:1D:09", "00:1E:0B", "00:1E:C9",
+            "00:21:5A", "00:25:64", "00:26:55", "00:1B:21", "00:14:2A", "00:21:9B", "00:25:90",
+            
+            # Dell, HP, IBM and other servers
+            "00:12:3F", "00:14:4F", "00:18:8B", "00:19:B9", "00:21:9B", "00:21:F6", "00:22:19",
+            "00:24:E8", "00:26:6C", "00:30:48", "00:15:C5", "00:17:A4", "00:21:5A", "00:0D:56"
+        ]
+        
+        for prefix in wired_prefixes:
+            if mac.startswith(prefix):
+                return False
+                
+        if "intel" in mac.lower() and any(x in mac.lower() for x in ["wifi", "wireless", "centrino"]):
+            return True
+
+        second_digit = mac[1]
+        if second_digit in "26AE":
+            return True
+            
+        iot_patterns = ["esp", "nest", "ring", "xiaomi", "tuya", "sonoff", "tplink"]
+        if any(pattern in mac.lower() for pattern in iot_patterns):
+            return True
+
+        if "vmware" in mac.lower() or "virtual" in mac.lower():
+            # 
+            return True
+
+        mac_value = int(mac.replace(":", ""), 16)
+        return mac_value % 10 < 7 
+        
+    except Exception as e:
+        print(f"Error determining wireless status for {mac_address}: {e}")
         return False
 
 def update_bandwidth_stats(current_time):

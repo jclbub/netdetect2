@@ -11,7 +11,7 @@ const Sidebar = ({  }) => {
     const [isLoggingOut, setIsLoggingOut] = useState(false);
 
     const menuItems = [
-        { name: "Dashboard", route: "/dashboard" , icon: <FaTachometerAlt /> },
+        { name: "Dashboard", route: "dashboard" , icon: <FaTachometerAlt /> },
         { name: "Network Status", route: "network-status" , icon: <FaNetworkWired /> },
         { name: "Connected Devices", route: "connected-devices" , icon: <FaMobileAlt /> },
         { name: "Bandwidth Usage", route: "bandwidth-usage" , icon: <FaChartLine /> },

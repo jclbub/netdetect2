@@ -17,6 +17,7 @@ const Dashboard = () => {
   const [realTimeSpeedData, setRealTimeSpeedData] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRunningSpeedTest, setIsRunningSpeedTest] = useState(false);
+  const [connectedDevicesList, setConnectedDevicesList] = useState([]);
 
   // Custom hook for data fetching with smooth transitions
   const useSmoothFetch = (endpoint) => {
@@ -40,12 +41,48 @@ const Dashboard = () => {
   };
 
   // Use smooth fetch for all data endpoints
-  const { data: speedData, error: speedError, loading: speedLoading, refetch: refetchSpeed } = useSmoothFetch("network-speed");
+  const { data: speedData, error: speedError, loading: speedLoading, refetch: refetchSpeed } = useSmoothFetch("speed-test");
   const { data: bandwidthData, error: bandwidthError, loading: bandwidthLoading, refetch: refetchBandwidth } = useSmoothFetch("total-bandwidth-usage");
   const { data: connectedDevices, error: connectedError, loading: connectedLoading, refetch: refetchConnected } = otherFetch("connected-devices");
 
 
   // Function to run a new speed test
+  const runSpeedTest = async () => {
+    setIsRunningSpeedTest(true);
+    try {
+      const response = await fetch('http://localhost:8000/run-speed-test', {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setRealTimeSpeedData({
+          download_speed: data.download_mbps,
+          upload_speed: data.upload_mbps,
+          ping_latency: data.ping_ms
+        });
+        
+        // Update refs for smooth transitions
+        prevSpeedData.current = {
+          download_speed: data.download_mbps,
+          upload_speed: data.upload_mbps,
+          ping_latency: data.ping_ms
+        };
+      }
+    } catch (error) {
+      console.error('Error running speed test:', error);
+    } finally {
+      setIsRunningSpeedTest(false);
+    }
+  };
+
+  const formatBandwidth = (mb) => {
+    const num = Number(mb); 
+    if (isNaN(num) || num <= 0) return "0 MB"; 
+  
+    const gb = num / 1024;
+    return gb >= 1 ? `${gb.toFixed(2)} GB` : `${num.toFixed(2)} MB`;
+  };
 
   // Convert bytes to appropriate unit
   const formatBytes = (bytes, decimals = 2) => {
@@ -79,30 +116,32 @@ const Dashboard = () => {
     if (bandwidthData) {
       // Store previous data
       prevBandwidthData.current = bandwidthData;
-      
-      // Update the bandwidth history for the chart with smooth transitions
+  
+      // Update bandwidth history for the chart
       setBandwidthHistory(prevHistory => {
-        const newHistory = [...prevHistory, {
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          bytes_sent: bandwidthData.total_bytes_sent,
-          bytes_recv: bandwidthData.total_bytes_recv,
-          // Add interpolation data for smoother transitions
-          _smooth: true
-        }];
+        const newHistory = [
+          ...prevHistory,
+          {
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+            bytes_sent: parseFloat(bandwidthData.total_upload_MB.replace(" MB", "")), // Convert to number
+            bytes_recv: parseFloat(bandwidthData.total_download_MB.replace(" MB", "")), // Convert to number
+            _smooth: true
+          }
+        ];
         // Keep only the latest 20 data points
         return newHistory.slice(-20);
       });
     }
   }, [bandwidthData]);
-
-  // Update connected devices data periodically
+  
+  // Update connected devices data
   useEffect(() => {
-    if (connectedDevices) {
+    if (connectedDevices?.connected_devices) {
+      setConnectedDevicesList(connectedDevices.connected_devices);
       prevConnectedDevices.current = connectedDevices;
-    }
-    
-    const interval = setInterval(() => {
-      const count = connectedDevices?.connected_devices?.length || 0;
+      
+      // Update the ping history for the chart
+      const count = connectedDevices.connected_devices.length || 0;
       setPingHistory(prevHistory => {
         const newHistory = [...prevHistory, {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -113,24 +152,31 @@ const Dashboard = () => {
         // Keep only the latest 20 data points
         return newHistory.slice(-20);
       });
+    }
+  }, [connectedDevices]);
+
+  // Update connected devices data periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetchConnected();
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [connectedDevices]);
+  }, [refetchConnected]);
 
   // Fetch initial speed data
   useEffect(() => {
     if (speedData) {
       setRealTimeSpeedData({
-        download_speed: speedData.download_speed,
-        upload_speed: speedData.upload_speed,
-        ping_latency: speedData.ping_latency
+        download_speed: speedData.downbandwidth,
+        upload_speed: speedData.upbandwidth,
+        ping_latency: speedData.ping_latency || 15 // Default value if not provided
       });
       
       prevSpeedData.current = {
-        download_speed: speedData.download_speed,
-        upload_speed: speedData.upload_speed,
-        ping_latency: speedData.ping_latency
+        download_speed: speedData.downbandwidth,
+        upload_speed: speedData.upbandwidth,
+        ping_latency: speedData.ping_latency || 15
       };
     }
   }, [speedData]);
@@ -146,9 +192,9 @@ const Dashboard = () => {
           // Apply smooth transition
           if (prevSpeedData.current) {
             const transitionData = {
-              download_speed: data.download_mbps,
-              upload_speed: data.upload_mbps,
-              ping_latency: data.ping_ms
+              download_speed: data.downbandwidth || 0,
+              upload_speed: data.upbandwidth || 0,
+              ping_latency: data.ping_latency || 15
             };
             
             setRealTimeSpeedData(transitionData);
@@ -211,15 +257,13 @@ const Dashboard = () => {
   // Calculate percentage for gauge
   const calculateGaugePercentage = (value, type) => {
     if (type === "ping") {
-      return Math.min(1, Math.max(0, 1 - (value / 20)));
+      return Math.min(1, Math.max(0, 1 - (value / 200)));
     } else if (type === "download") {
-      return Math.min(1, Math.max(0, value / 200));
+      return Math.min(1, Math.max(0, value / 500));
     } else {
       return Math.min(1, Math.max(0, value / 200));
     }
   };
-  
-  
 
   // Custom tooltip for the bandwidth graph
   const CustomTooltip = ({ active, payload, label }) => {
@@ -227,8 +271,8 @@ const Dashboard = () => {
       return (
         <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-md">
           <p className="font-medium text-gray-700">{label}</p>
-          {payload[0] && <p className="text-sm text-indigo-600">Sent: {formatBytes(payload[0].value)}</p>}
-          {payload[1] && <p className="text-sm text-emerald-600">Received: {formatBytes(payload[1].value)}</p>}
+          {payload[0] && <p className="text-sm text-indigo-600">Sent: {formatBandwidth(payload[0].value)}</p>}
+          {payload[1] && <p className="text-sm text-emerald-600">Received: {formatBandwidth(payload[1].value)}</p>}
         </div>
       );
     }
@@ -335,10 +379,10 @@ const Dashboard = () => {
             
             {/* Value text */}
             <text x="90" y="60" textAnchor="middle" className="font-bold text-xl fill-gray-800">
-              {value.toFixed(1)}
+              {value?.toFixed(1) || "0.0"}
             </text>
             <text x="90" y="75" textAnchor="middle" className="text-xs fill-gray-500">
-              {type === "ping" ? "ms" : "Mbps"}
+              {type === "ping" ? "ms" : "Kbps"}
             </text>
           </svg>
           
@@ -359,7 +403,180 @@ const Dashboard = () => {
             )}
           </div>
         </div>
+      </div>
+    );
+  };
+
+  // Component for Connected Devices List
+  const ConnectedDevicesList = ({ devices }) => {
+    return (
+      <div className="bg-white bg-opacity-90 backdrop-filter backdrop-blur-sm rounded-xl shadow-sm overflow-hidden hover:shadow-md mb-6">
+        <div className="p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Wifi size={18} />
+              <h2 className="font-semibold">Connected Devices</h2>
+            </div>
+            <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full">
+              {devices?.length || 0} Devices
+            </span>
+          </div>
+        </div>
         
+        <div className="p-4">
+          {connectedLoading ? (
+            renderLoading()
+          ) : connectedError ? (
+            renderError()
+          ) : devices?.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MAC Address</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Speed</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {devices.map((device, index) => (
+                    <tr key={device.MACAddress || index} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-10 w-10 bg-gray-100 rounded-full flex items-center justify-center">
+                            {device.DeviceType === "Desktop PC" && <Globe size={20} className="text-blue-500" />}
+                            {device.DeviceType === "Mobile" && <div className="w-5 h-8 rounded-sm border-2 border-blue-500" />}
+                            {!device.DeviceType && <Wifi size={20} className="text-gray-500" />}
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">{device.HostName || "Unknown Device"}</div>
+                            <div className="text-xs text-gray-500">{device.ActualName || "No name"}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{device.IPAddress || "Unknown"}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-500">{device.MACAddress || "Unknown"}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{device.DeviceType || "Unknown"}</div>
+                        <div className="text-xs text-gray-500">{device.InterfaceType || "Unknown"}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${device.Active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                          {device.Active ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div className="flex flex-col">
+                          <div className="flex items-center">
+                            <Upload size={12} className="text-indigo-500 mr-1" />
+                            <span>{device.UpRate || 0} kbps</span>
+                          </div>
+                          <div className="flex items-center">
+                            <Download size={12} className="text-emerald-500 mr-1" />
+                            <span>{device.DownRate || 0} kbps</span>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <Wifi size={40} className="mx-auto text-gray-300 mb-2" />
+              <p>No devices connected</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Network Status Card
+  const NetworkStatusCard = ({ data }) => {
+    return (
+      <div className="bg-white bg-opacity-90 backdrop-filter backdrop-blur-sm rounded-xl shadow-sm overflow-hidden hover:shadow-md mb-6">
+        <div className="p-4 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white">
+          <div className="flex items-center gap-2">
+            <Globe size={18} />
+            <h2 className="font-semibold">Network Status</h2>
+          </div>
+        </div>
+        
+        <div className="p-4">
+          {speedLoading ? (
+            renderLoading()
+          ) : speedError ? (
+            renderError()
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="text-lg font-medium text-gray-800 mb-3">Connection Details</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1 text-sm font-medium text-gray-500">Status</div>
+                  <div className="col-span-2 text-sm text-gray-900">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      {data?.connectionstatus || "Connected"}
+                    </span>
+                  </div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">Type</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.connection_type || "IP_Routed"}</div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">Access</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.accesstype || "Ethernet"}</div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">IP Address</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.ipv4addr || "192.168.1.3"}</div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">Gateway</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.ipv4gateway || "192.168.1.1"}</div>
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h3 className="text-lg font-medium text-gray-800 mb-3">Network Settings</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1 text-sm font-medium text-gray-500">DNS Servers</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.ipv4dnsservers || "192.168.1.1"}</div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">MTU</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.mtu || 1500}</div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">IPv6</div>
+                  <div className="col-span-2 text-sm text-gray-900">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${data?.ipv6enable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {data?.ipv6enable ? "Enabled" : "Disabled"}
+                    </span>
+                  </div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">Access Status</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.accessstatus || "Up"}</div>
+                  
+                  <div className="col-span-1 text-sm font-medium text-gray-500">Connection Name</div>
+                  <div className="col-span-2 text-sm text-gray-900">{data?.name || "INTERNET_R_ETH1"}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {data?.note && (
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded-lg text-sm text-yellow-800">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={16} />
+                <p>{data.note}</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -386,10 +603,11 @@ const Dashboard = () => {
           </button>
         </div>
 
-        {/* Status Cards Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          
-        </div>
+        {/* Network Status Card */}
+        <NetworkStatusCard data={speedData} />
+
+        {/* Connected Devices List */}
+        <ConnectedDevicesList devices={connectedDevicesList} />
 
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -421,59 +639,48 @@ const Dashboard = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={bandwidthHistory} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis 
-                          dataKey="timestamp" 
-                          tick={{ fontSize: 12 }}
-                          stroke="#9ca3af"
-                        />
+                        <XAxis dataKey="timestamp" tick={{ fontSize: 12 }} />
                         <YAxis 
-                          tickFormatter={(value) => formatBytes(value, 0)}
-                          width={80}
-                          tick={{ fontSize: 12 }}
-                          stroke="#9ca3af"
+                          tickFormatter={tick => tick}
+                          width={60}
+                          tick={{ fontSize: 12 }} 
                         />
                         <Tooltip content={<CustomTooltip />} />
-                        <Legend 
-                          verticalAlign="top" 
-                          height={36}
-                          formatter={(value) => <span className="text-sm font-medium">{value === "bytes_sent" ? "Upload" : "Download"}</span>}
-                        />
+                        <Legend />
                         <Line 
                           type="monotone" 
                           dataKey="bytes_sent" 
-                          name="bytes_sent"
+                          name="Upload" 
                           stroke="#6366f1" 
-                          strokeWidth={2}
                           dot={false}
-                          activeDot={{ r: 4, stroke: "#4f46e5", strokeWidth: 1 }}
-                          animationDuration={1000}
-                          animationEasing="ease-out"
-                          isAnimationActive={true}
+                          strokeWidth={2}
+                          animationDuration={300}
                         />
                         <Line 
                           type="monotone" 
                           dataKey="bytes_recv" 
-                          name="bytes_recv"
-                          stroke="#10b981" 
-                          strokeWidth={2}
+                          name="Download" 
+                          stroke="#10b981"
                           dot={false}
-                          activeDot={{ r: 4, stroke: "#059669", strokeWidth: 1 }}
-                          animationDuration={1000}
-                          animationEasing="ease-out"
-                          isAnimationActive={true}
+                          strokeWidth={2}
+                          animationDuration={300}
                         />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                   
-                  <div className="flex justify-between mt-4 text-sm text-gray-600">
-                    <div className="flex items-center">
-                      <div className="w-3 h-3 rounded-full bg-indigo-500 mr-2"></div>
-                      <span>Upload (Sent Data)</span>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="bg-indigo-50 rounded-lg p-3">
+                      <div className="text-xs text-indigo-600 mb-1">Total Sent</div>
+                      <div className="text-xl font-bold text-indigo-700">
+                        {bandwidthData ? formatBandwidth(parseFloat(bandwidthData.total_upload_MB)) : "Loading..."}
+                      </div>
                     </div>
-                    <div className="flex items-center">
-                      <div className="w-3 h-3 rounded-full bg-emerald-500 mr-2"></div>
-                      <span>Download (Received Data)</span>
+                    <div className="bg-emerald-50 rounded-lg p-3">
+                      <div className="text-xs text-emerald-600 mb-1">Total Received</div>
+                      <div className="text-xl font-bold text-emerald-700">
+                        {bandwidthData ? formatBandwidth(parseFloat(bandwidthData.total_download_MB)) : "Loading..."}
+                      </div>
                     </div>
                   </div>
                 </>
@@ -487,7 +694,7 @@ const Dashboard = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Wifi size={18} />
-                  <h2 className="font-semibold">Connected Devices Monitoring</h2>
+                  <h2 className="font-semibold">Connected Devices History</h2>
                 </div>
                 <div className="flex items-center">
                   <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full">
@@ -506,49 +713,55 @@ const Dashboard = () => {
               ) : (
                 <>
                   <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={pingHistory} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis 
-                          dataKey="timestamp" 
-                          tick={{ fontSize: 12 }}
-                          stroke="#9ca3af"
-                        />
-                        <YAxis 
-                          width={50}
-                          tick={{ fontSize: 12 }}
-                          stroke="#9ca3af"
-                          domain={[0, 'dataMax + 2']}
-                        />
-                        <Tooltip content={<PingTooltip />} />
-                        <Legend 
-                          verticalAlign="top" 
-                          height={36}
-                          formatter={(value) => <span className="text-sm font-medium">{value}</span>}
-                        />
-                        <Bar 
-                          dataKey="ping" 
-                          name="Connected Devices"
-                          fill="#e11d48" 
-                          animationDuration={1000}
-                          animationEasing="ease-out"
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <ResponsiveContainer width="100%" height={300}>
+                                                <BarChart data={[
+                                                    ...Array.from(new Set(connectedDevices.map(d => d.DeviceType))).map(type => ({
+                                                        name: type,
+                                                        value: connectedDevices.filter(d => d.DeviceType === type).length
+                                                    }))
+                                                ]} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                                    <XAxis 
+                                                        dataKey="name" 
+                                                        tick={{ fill: '#6b7280' }}
+                                                        axisLine={{ stroke: '#e5e7eb' }}
+                                                    />
+                                                    <YAxis 
+                                                        tick={{ fill: '#6b7280' }}
+                                                        axisLine={{ stroke: '#e5e7eb' }}
+                                                    />
+                                                    <Tooltip 
+                                                        contentStyle={{ 
+                                                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                                            borderRadius: '8px',
+                                                            border: 'none',
+                                                            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                                                        }}
+                                                    />
+                                                    <Legend />
+                                                    <Bar 
+                                                        dataKey="value" 
+                                                        name="Devices" 
+                                                        fill="#ff007f" 
+                                                        radius={[4, 4, 0, 0]} 
+                                                    />
+                                                </BarChart>
+                                            </ResponsiveContainer>
                   </div>
                   
-                  <div className="flex justify-between mt-4 text-sm text-gray-600">
-                    <div className="flex items-center">
-                      <div className="w-3 h-3 rounded-full bg-rose-500 mr-2"></div>
-                      <span>Connected Devices ({connectedDevices?.connected_devices?.length || 0})</span>
-                    </div>
-                    {connectedDevices && (
-                      <div className="flex items-center">
-                        <span className="px-2 py-1 bg-gray-100 rounded-full text-xs">
-                          Last updated: {new Date().toLocaleTimeString()}
-                        </span>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div className="bg-rose-50 rounded-lg p-3">
+                      <div className="text-xs text-rose-600 mb-1">Current Devices</div>
+                      <div className="text-xl font-bold text-rose-700">
+                        {connectedDevices?.length || 0}
                       </div>
-                    )}
+                    </div>
+                    {/* <div className="bg-blue-50 rounded-lg p-3">
+                      <div className="text-xs text-blue-600 mb-1">Peak Devices</div>
+                      <div className="text-xl font-bold text-blue-700">
+                        {Math.max(...pingHistory.map(p => p.ping || 0), 0)}
+                      </div>
+                    </div> */}
                   </div>
                 </>
               )}
@@ -556,99 +769,112 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Bottom Row - Connection Performance Gauges */}
-        <div className="bg-white bg-opacity-90 backdrop-filter backdrop-blur-sm rounded-xl shadow-sm overflow-hidden hover:shadow-md">
-          <div className="p-4 bg-gradient-to-r from-purple-500 to-indigo-600 text-white">
-            <div className="flex items-center gap-2">
-              <Globe size={18} />
-              <h2 className="font-semibold">Connection Performance</h2>
+        {/* Speed Gauges */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          {/* Download Speed */}
+          <SpeedometerGauge 
+            value={realTimeSpeedData?.download_speed} 
+            maxValue={500}
+            type="download"
+            title="Download Speed"
+            icon={Download}
+          />
+          
+          {/* Upload Speed */}
+          <SpeedometerGauge 
+            value={realTimeSpeedData?.upload_speed} 
+            maxValue={200}
+            type="upload"
+            title="Upload Speed"
+            icon={Upload}
+          />
+          
+          {/* Ping Latency */}
+          <SpeedometerGauge 
+            value={realTimeSpeedData?.ping_latency} 
+            maxValue={200}
+            type="ping"
+            title="Ping Latency"
+            icon={Activity}
+          />
+        </div>
+
+        {/* Speed Test Button */}
+        <div className="bg-white bg-opacity-90 backdrop-filter backdrop-blur-sm rounded-xl shadow-sm p-5 mb-6 hover:shadow-md">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Network Speed Test</h2>
+              <p className="text-gray-500 text-sm">Run a comprehensive test to measure your connection performance</p>
             </div>
+            <button
+              onClick={runSpeedTest}
+              disabled={isRunningSpeedTest}
+              className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                isRunningSpeedTest
+                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  : "bg-indigo-600 hover:bg-indigo-700 text-white"
+              }`}
+            >
+              {isRunningSpeedTest ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" />
+                  Running Test...
+                </>
+              ) : (
+                <>
+                  <Activity size={16} />
+                  Run Speed Test
+                </>
+              )}
+            </button>
           </div>
           
-          <div className="p-6">
-            {speedLoading && !realTimeSpeedData ? (
-              renderLoading()
-            ) : speedError && !realTimeSpeedData ? (
-              renderError()
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Download Speed Gauge */}
-                <SpeedometerGauge 
-                  value={speedData?.download_mbps}
-                  maxValue={1000}
-                  type="download"
-                  title="Download Speed"
-                  icon={Download}
-                />
-                
-                {/* Upload Speed Gauge */}
-                <SpeedometerGauge 
-                  value={speedData?.upload_mbps}                  
-                  maxValue={1000}
-                  type="upload"
-                  title="Upload Speed"
-                  icon={Upload}
-                />
-                
-                {/* Ping Gauge */}
-                <SpeedometerGauge 
-                  value={speedData?.ping_ms}                  
-                    maxValue={100}
-                  type="ping"
-                  title="Ping Latency"
-                  icon={Activity}
-                />
+          {/* Test results summary */}
+          {realTimeSpeedData && !isRunningSpeedTest && (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Download size={16} className="text-blue-600" />
+                  <span className="text-sm text-blue-600 font-medium">Download Speed</span>
+                </div>
+                <div className="text-xl font-bold text-blue-700 mt-2">
+                  {realTimeSpeedData.download_speed.toFixed(2)} Kbps
+                </div>
               </div>
-            )}
+              
+              <div className="bg-indigo-50 p-3 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Upload size={16} className="text-indigo-600" />
+                  <span className="text-sm text-indigo-600 font-medium">Upload Speed</span>
+                </div>
+                <div className="text-xl font-bold text-indigo-700 mt-2">
+                  {realTimeSpeedData.upload_speed.toFixed(2)} Kbps
+                </div>
+              </div>
+              
+              <div className="bg-emerald-50 p-3 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Activity size={16} className="text-emerald-600" />
+                  <span className="text-sm text-emerald-600 font-medium">Ping Latency</span>
+                </div>
+                <div className="text-xl font-bold text-emerald-700 mt-2">
+                  {realTimeSpeedData.ping_latency.toFixed(1)} ms
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="mt-auto pt-6">
+          <div className="text-center text-sm text-gray-500">
+            <p>© 2025 Network Monitor Dashboard. All rights reserved.</p>
+            <p className="mt-1">Data refreshes automatically every 30 seconds</p>
           </div>
         </div>
       </div>
     </div>
   );
 };
-
-// Add CSS animations
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes fadeIn {
-    0% { opacity: 0; transform: translateY(10px); }
-    100% { opacity: 1; transform: translateY(0); }
-  }
-  
-  @keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); }
-    100% { transform: scale(1); }
-  }
-  
-  @keyframes gradientShift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-
-  .animate-gradientShift {
-    background-size: 200% 200%;
-    animation: gradientShift 5s ease infinite;
-  }
-  
-  .animate-fadeIn {
-    animation: fadeIn 0.8s ease-out forwards;
-  }
-  
-  .animate-pulse {
-    animation: pulse 2s infinite;
-  }
-  
-  .border-16 {
-    border-width: 16px;
-  }
-
-  .backdrop-filter {
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-  }
-`;
-document.head.appendChild(style);
 
 export default Dashboard;
