@@ -35,7 +35,10 @@ const ConnectedDevices = () => {
             // Calculate wireless vs wired counts for the chart
             const wirelessCount = enhancedDevices.filter(d => d.connection_type === "wireless").length;
             const wiredCount = enhancedDevices.filter(d => d.connection_type === "wired").length;
-            
+
+            console.log("Wireless Count:", wirelessCount); // Log counts for debugging
+            console.log("Wired Count:", wiredCount);
+
             const currentTime = new Date();
             setDeviceHistory(prevHistory => [
                 ...prevHistory.slice(-24), 

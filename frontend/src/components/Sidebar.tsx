@@ -1,16 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     FaTachometerAlt, FaNetworkWired, FaMobileAlt, FaChartLine, 
-    FaFilter, FaBell, FaClipboardList, FaSignOutAlt 
+    FaFilter, FaBell, FaClipboardList, FaSignOutAlt, FaBars, FaTimes 
 } from 'react-icons/fa';
 import { auth } from "../pages/auth/firebase";
 import { signOut } from 'firebase/auth';
+import image from '../../public/a35.jpg'
 
 const Sidebar = ({  }) => {
-    const [active, setActive] = useState('Dashboard'); // Track active menu
+    const [active, setActive] = useState('Dashboard'); // Ensure this is the default state
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [isOpen, setIsOpen] = useState(false);
 
-    const menuItems = [
+    const toggleSidebar = () => {
+        setIsOpen(!isOpen);
+    };
+
+    const menuItems = [ 
         { name: "Dashboard", route: "dashboard" , icon: <FaTachometerAlt /> },
         { name: "Network Status", route: "network-status" , icon: <FaNetworkWired /> },
         { name: "Connected Devices", route: "connected-devices" , icon: <FaMobileAlt /> },
@@ -37,49 +43,57 @@ const Sidebar = ({  }) => {
         console.log(route)
         window.location.href = `/${route}`;
     }
- 
+
+    useEffect(() => {
+        const currentRoute = window.location.pathname.replace('/', '');
+        const activeItem = menuItems.find(item => item.route === currentRoute);
+        if (activeItem) {
+            setActive(activeItem.name);
+        }
+    }, [menuItems]);
+
     return (
-        <div className="w-[16%] bg-white text-gray-800 p-6 h-screen shadow-md flex flex-col justify-between border-r border-gray-200 z-10">
-            {/* Logo / Brand */}
-            <h2 className="text-2xl font-bold mb-8 text-center tracking-wide text-gray-700">NetDetect</h2>
-
-            {/* Menu List */}
-            <ul className="space-y-2 h-[60vh]">
-                {menuItems.map((item) => (
-                    <li 
-                        key={item.name} 
-                        onClick={() => {
-                            setActive(item.name);
-                            onComponentChange(item.route); // Call the prop to change the component
-                        }}
-                        className={`flex items-center p-3 rounded-lg cursor-pointer transition-all duration-300 ${
-                            active === item.name 
-                                ? "bg-gray-100 text-gray-900 font-medium shadow-sm"
-                                : "hover:bg-gray-50 text-gray-600"
-                        }`}
+        <div className={`sidebar ${isOpen ? 'open' : ''}`}>
+            <button className='toggle-button' onClick={toggleSidebar}>
+                {isOpen ? <FaTimes /> : <FaBars />}
+            </button>
+            <div className='sidebar-content'>
+                <h2 className="text-2xl font-bold mb-8 text-center tracking-wide text-gray-700">NetDetect</h2>
+                <ul className="space-y-2 h-[60vh]">
+                    {menuItems.map((item) => (
+                        <li 
+                            key={item.name} 
+                            onClick={() => {
+                                setActive(item.name); // This should update the active state
+                                onComponentChange(item.route);
+                            }}
+                            className={`flex items-center p-3 rounded-lg cursor-pointer transition-all duration-300 ${
+                                active === item.name 
+                                    ? "bg-gray-300 text-gray-900 font-medium shadow-sm"
+                                    : "hover:bg-gray-50 text-gray-600"
+                            }`}
+                        >
+                            <span className="mr-3 text-lg text-gray-500">{item.icon}</span> 
+                            {item.name}
+                        </li>
+                    ))}
+                </ul>
+                <div className="flex flex-col items-center mt-6">
+                    <img 
+                        src={image}
+                        alt="Profile" 
+                        className="w-16 h-16 rounded-full mb-2 border border-gray-300 shadow-sm"
+                    />
+                    <span className="text-sm font-semibold text-gray-700">Joel</span>
+                    <button 
+                        onClick={handleLogout}
+                        disabled={isLoggingOut}
+                        className="flex items-center text-red-500 hover:text-red-600 mt-3 transition-all duration-300"
                     >
-                        <span className="mr-3 text-lg text-gray-500">{item.icon}</span> 
-                        {item.name}
-                    </li>
-                ))}
-            </ul>
-
-            {/* Profile & Logout */}
-            <div className="flex flex-col items-center mt-6">
-                <img 
-                    src="path_to_your_profile_image.jpg" 
-                    alt="Profile" 
-                    className="w-16 h-16 rounded-full mb-2 border border-gray-300 shadow-sm"
-                />
-                <span className="text-sm font-semibold text-gray-700">User Name</span>
-                <button 
-                    onClick={handleLogout}
-                    disabled={isLoggingOut}
-                    className="flex items-center text-red-500 hover:text-red-600 mt-3 transition-all duration-300"
-                >
-                    <FaSignOutAlt className="mr-2" /> 
-                    {isLoggingOut ? "Logging out..." : "Log Out"}
-                </button>
+                        <FaSignOutAlt className="mr-2" /> 
+                        {isLoggingOut ? "Logging out..." : "Log Out"}
+                    </button>
+                </div>
             </div>
         </div>
     );

@@ -264,7 +264,6 @@ const Dashboard = () => {
       return Math.min(1, Math.max(0, value / 200));
     }
   };
-
   // Custom tooltip for the bandwidth graph
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -326,7 +325,7 @@ const Dashboard = () => {
             <Icon size={16} className="text-gray-200" />
             <h3 className="font-medium">{title}</h3>
           </div>
-          <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full text-black">
+          <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full text-white">
             {type === "ping" ? "Latency" : "Speed"}
           </span>
         </div>
@@ -582,17 +581,17 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br w-full from-indigo-50 to-gray-100 overflow-hidden flex flex-row gap-20">
+    <div className="flex flex-col md:flex-row h-screen bg-gradient-to-br w-full from-indigo-50 to-gray-100 overflow-y-auto overflow-x-hidden">
       <Sidebar />
-      <div className="flex-grow flex flex-col p-6 overflow-y-auto">
+      <div className="flex-1 p-3 md:p-6 overflow-y-auto max-w-full">
         {/* Header with glass morphism effect */}
-        <div className="bg-white bg-opacity-80 backdrop-filter backdrop-blur-lg rounded-xl shadow-sm p-5 mb-6 flex justify-between items-center hover:shadow-md">
+        <div className="bg-white bg-opacity-80 backdrop-filter backdrop-blur-lg rounded-xl shadow-sm p-4 md:p-5 mb-4 md:mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 hover:shadow-md">
           <div>
-            <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            <h1 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2">
               <Globe className="text-indigo-500" size={24} />
               Network Dashboard
             </h1>
-            <p className="text-gray-500">Monitor your network performance and bandwidth usage in real-time</p>
+            <p className="text-sm md:text-base text-gray-500">Monitor your network performance and bandwidth usage in real-time</p>
           </div>
           <button 
             onClick={handleRefresh}
@@ -607,37 +606,37 @@ const Dashboard = () => {
         <NetworkStatusCard data={speedData} />
 
         {/* Connected Devices List */}
-        <ConnectedDevicesList devices={connectedDevicesList} />
+        {/* <ConnectedDevicesList devices={connectedDevicesList} /> */}
 
         {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-6 mb-3 md:mb-6">
           {/* Bandwidth Usage Chart */}
           <div className="bg-white bg-opacity-90 backdrop-filter backdrop-blur-sm rounded-xl shadow-sm overflow-hidden h-full hover:shadow-md">
-            <div className="p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white">
+            <div className="p-3 md:p-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Activity size={18} />
-                  <h2 className="font-semibold">Real-time Bandwidth Usage</h2>
+                  <Activity size={16} className="md:size-18" />
+                  <h2 className="font-semibold text-sm md:text-base">Real-time Bandwidth Usage</h2>
                 </div>
                 <div className="flex items-center">
                   <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full">
-                    <span className="inline-block h-2 w-2 rounded-full bg-emerald-300 mr-1 animate-pulse"></span>
-                    Live
+                    <span className="inline-block h-2 w-2 rounded-full bg-emerald-300 mr-1 animate-pulse text-black"></span>
+                    <span className="text-black">Live</span>
                   </span>
                 </div>
               </div>
             </div>
             
-            <div className="p-5">
+            <div className="p-3 md:p-5">
               {bandwidthLoading ? (
                 renderLoading()
               ) : bandwidthError ? (
                 renderError()
               ) : (
                 <>
-                  <div className="h-64">
+                  <div className="h-48 md:h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={bandwidthHistory} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                      <LineChart data={bandwidthHistory} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis dataKey="timestamp" tick={{ fontSize: 12 }} />
                         <YAxis 
@@ -690,7 +689,7 @@ const Dashboard = () => {
 
           {/* Connected Devices Chart */}
           <div className="bg-white bg-opacity-90 backdrop-filter backdrop-blur-sm rounded-xl shadow-sm overflow-hidden h-full hover:shadow-md">
-            <div className="p-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white">
+            <div className="p-3 md:p-4 bg-gradient-to-r from-rose-500 to-pink-600 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Wifi size={18} />
@@ -699,13 +698,13 @@ const Dashboard = () => {
                 <div className="flex items-center">
                   <span className="text-xs bg-white bg-opacity-20 px-2 py-1 rounded-full">
                     <span className="inline-block h-2 w-2 rounded-full bg-rose-300 mr-1 animate-pulse"></span>
-                    Live
+                    <span className="text-black">Live</span>
                   </span>
                 </div>
               </div>
             </div>
             
-            <div className="p-5">
+            <div className="p-3 md:p-5">
               {connectedLoading ? (
                 renderLoading()
               ) : connectedError ? (
