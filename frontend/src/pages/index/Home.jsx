@@ -25,14 +25,24 @@ function Home() {
 		try {
 			if (isLogin) {
 				await signInWithEmailAndPassword(auth, email, password);
-				window.location.href = "/DASHBOARD";
+				// Use router push instead of window.location for better React routing
+				window.location.href = "/dashboard"; // Note: changed to lowercase for URL consistency
 			} else {
 				await createUserWithEmailAndPassword(auth, email, password);
-				window.location.href = "/DASHBOARD";
+				window.location.href = "/dashboard"; // Note: changed to lowercase for URL consistency
 			}
 		} catch (error) {
 			console.error("Authentication error:", error);
-			setError(error.message);
+			// Provide a more user-friendly error message
+			if (error.code === "auth/invalid-credential") {
+				setError("Invalid email or password. Please try again.");
+			} else if (error.code === "auth/email-already-in-use") {
+				setError("This email is already registered. Please log in instead.");
+			} else if (error.code === "auth/weak-password") {
+				setError("Password should be at least 6 characters.");
+			} else {
+				setError("An error occurred. Please try again later.");
+			}
 		} finally {
 			setLoading(false);
 		}
@@ -44,13 +54,20 @@ function Home() {
 		
 		try {
 			await signInWithPopup(auth, googleProvider);
-			window.location.href = "/DASHBOARD";
+			window.location.href = "/dashboard"; // Note: changed to lowercase for URL consistency
 		} catch (error) {
 			console.error("Google sign-in error:", error);
-			setError(error.message);
+			// Provide a more user-friendly error message
+			setError("Google sign-in failed. Please try again later.");
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	// Reset error when toggling between login and signup
+	const toggleAuthMode = () => {
+		setIsLogin(!isLogin);
+		setError("");
 	};
 
 	return (
@@ -140,6 +157,7 @@ function Home() {
 										className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
 										placeholder="Enter your password"
 										required
+										minLength={6}
 									/>
 								</div>
 
@@ -202,7 +220,7 @@ function Home() {
 								<button
 									type="button"
 									className="text-sm text-blue-600 hover:underline"
-									onClick={() => setIsLogin(!isLogin)}
+									onClick={toggleAuthMode}
 								>
 									{isLogin ? "Need an account? Sign up" : "Already have an account? Log in"}
 								</button>
@@ -213,7 +231,6 @@ function Home() {
 			)}
 			
 			<FeaturesBenefitsSection />
-
 
 			{/* <Footer /> */}
 			

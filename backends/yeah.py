@@ -22,7 +22,7 @@ HOSTINFO_URL = "http://192.168.3.1/api/system/HostInfo"
 WAN_STATUS_URL = "http://192.168.3.1/api/ntwk/wan"
 
 cookies = {
-    "SessionID_R3": "oeQ9Mmnk8vdVRqrWLOQyVJZbKnjKN90VCvcaavB5BzEeSANw5SPxg0qcVcaXheFzL5jpIa4dUZQknxDfZlp8sD1lCC44AxdSP0omBchh0EjU6yxMCa9pFSvJOG4UOtsI"
+    "SessionID_R3": "bUiLgSzGFnxeV1jDzYYcXHMD83jpfOROHCFcEsX8J0F0OjWQ6oIInrBUC3V8P9ZtWOvQHm1gX0qjE0nNuevVizd1GLGBHFPUZNQV3Crq6LXpC6zbV6cX9eq6rNSLaVaB"
 }
 
 headers = {

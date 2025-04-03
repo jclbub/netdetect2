@@ -15,7 +15,7 @@ app = FastAPI()
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Allow frontend origin
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # Allow frontend origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -296,23 +296,51 @@ def bandwidth_usage(interval: int = 1):
 
     try:
         current_time = time.time()
-        if current_time - last_update_time < interval:
+        time_diff = current_time - last_update_time
+        if time_diff < interval:
             return {"error": "Interval too short"}
 
+        # Get overall network stats
         current_net_io = psutil.net_io_counters()
-        bytes_sent = current_net_io.bytes_sent - previous_net_io.bytes_sent
-        bytes_recv = current_net_io.bytes_recv - previous_net_io.bytes_recv
-        packets_sent = current_net_io.packets_sent - previous_net_io.packets_sent
-        packets_recv = current_net_io.packets_recv - previous_net_io.packets_recv
+        bytes_sent = current_net_io.bytes_sent
+        bytes_recv = current_net_io.bytes_recv
+        packets_sent = current_net_io.packets_sent
+        packets_recv = current_net_io.packets_recv
+        
+        # Calculate rates
+        bytes_sent_rate = (bytes_sent - previous_net_io.bytes_sent) / time_diff
+        bytes_recv_rate = (bytes_recv - previous_net_io.bytes_recv) / time_diff
+        
+        # Get per-interface stats
+        interfaces = {}
+        net_io_per_nic = psutil.net_io_counters(pernic=True)
+        
+        for interface_name, stats in net_io_per_nic.items():
+            # Skip loopback interface
+            if interface_name.lower() in ['lo', 'loopback']:
+                continue
+                
+            interfaces[interface_name] = {
+                "bytes_sent": stats.bytes_sent,
+                "bytes_recv": stats.bytes_recv,
+                "packets_sent": stats.packets_sent,
+                "packets_recv": stats.packets_recv,
+                "active": stats.bytes_sent > 0 or stats.bytes_recv > 0
+            }
 
+        # Update previous values for next calculation
         previous_net_io = current_net_io  
         last_update_time = current_time
 
         response = {
             "bytes_sent": bytes_sent,
             "bytes_recv": bytes_recv,
+            "bytes_sent_rate": bytes_sent_rate,
+            "bytes_recv_rate": bytes_recv_rate,
             "packets_sent": packets_sent,
             "packets_recv": packets_recv,
+            "interfaces": interfaces,
+            "timestamp": current_time
         }
 
         set_cache_data("bandwidth_usage", response, CACHE_DURATION["bandwidth_usage"])
@@ -339,6 +367,52 @@ def total_bandwidth_usage():
         return response
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/connected-devices")
+def connected_devices():
+    """Get information about devices connected to the network."""
+    try:
+        # Get network interfaces
+        interfaces = psutil.net_if_addrs()
+        
+        # Prepare a list of connected devices
+        devices = []
+        
+        # Add local device
+        local_device = {
+            "name": socket.gethostname(),
+            "ip": socket.gethostbyname(socket.gethostname()),
+            "mac": ":".join(["{:02x}".format((uuid.getnode() >> elements) & 0xff) 
+                            for elements in range(0, 48, 8)][::-1]),
+            "type": "Local Device",
+            "status": "Connected",
+            "last_seen": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "bandwidth_usage": {
+                "download": 0,
+                "upload": 0
+            }
+        }
+        devices.append(local_device)
+        
+        # Try to get additional devices (this would normally come from router data)
+        # For now, we'll just add a simulated device
+        simulated_device = {
+            "name": "Simulated Device",
+            "ip": "192.168.1.100",
+            "mac": "aa:bb:cc:dd:ee:ff",
+            "type": "Smartphone",
+            "status": "Connected",
+            "last_seen": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "bandwidth_usage": {
+                "download": 1024 * 1024 * 10,  # 10 MB
+                "upload": 1024 * 1024 * 2      # 2 MB
+            }
+        }
+        devices.append(simulated_device)
+        
+        return {"devices": devices}
+    except Exception as e:
+        return {"error": str(e), "devices": []}
 
 def identify_manufacturer(mac_address):
     # This function is not implemented in the provided code

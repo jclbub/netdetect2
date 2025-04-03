@@ -12,9 +12,26 @@ const Dashboard = () => {
   const prevSpeedData = useRef(null);
 
   // State for live data
-  const [bandwidthHistory, setBandwidthHistory] = useState([]);
-  const [pingHistory, setPingHistory] = useState([]);
-  const [realTimeSpeedData, setRealTimeSpeedData] = useState(null);
+  const [bandwidthHistory, setBandwidthHistory] = useState<Array<{
+    timestamp: string;
+    bytes_sent: number;
+    bytes_recv: number;
+    _smooth?: boolean;
+  }>>([]);
+  const [pingHistory, setPingHistory] = useState<Array<{
+    timestamp: string;
+    ping: number;
+    _smooth?: boolean;
+  }>>([]);
+  const [realTimeSpeedData, setRealTimeSpeedData] = useState<{
+    download_speed: number | null;
+    upload_speed: number | null;
+    ping_latency: number | null;
+  }>({
+    download_speed: null,
+    upload_speed: null,
+    ping_latency: null
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRunningSpeedTest, setIsRunningSpeedTest] = useState(false);
   const [connectedDevicesList, setConnectedDevicesList] = useState([]);
@@ -45,6 +62,13 @@ const Dashboard = () => {
   const { data: bandwidthData, error: bandwidthError, loading: bandwidthLoading, refetch: refetchBandwidth } = useSmoothFetch("total-bandwidth-usage");
   const { data: connectedDevices, error: connectedError, loading: connectedLoading, refetch: refetchConnected } = otherFetch("connected-devices");
 
+  // Define the type for bandwidthData
+  type BandwidthDataType = {
+    total_bytes_sent?: number;
+    total_bytes_recv?: number;
+    total_mbps_sent?: number;
+    total_mbps_recv?: number;
+  };
 
   // Function to run a new speed test
   const runSpeedTest = async () => {
@@ -119,12 +143,17 @@ const Dashboard = () => {
   
       // Update bandwidth history for the chart
       setBandwidthHistory(prevHistory => {
+        // Check if bandwidthData exists and has the expected properties
+        if (!bandwidthData || (!bandwidthData.total_mbps_recv && !bandwidthData.total_mbps_sent)) {
+          return prevHistory;
+        }
+        
         const newHistory = [
           ...prevHistory,
           {
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-            bytes_sent: parseFloat(bandwidthData.total_upload_MB.replace(" MB", "")), // Convert to number
-            bytes_recv: parseFloat(bandwidthData.total_download_MB.replace(" MB", "")), // Convert to number
+            bytes_sent: bandwidthData.total_mbps_sent || 0, 
+            bytes_recv: bandwidthData.total_mbps_recv || 0,
             _smooth: true
           }
         ];
@@ -309,10 +338,13 @@ const Dashboard = () => {
     </div>
   );
 
+  // SpeedometerGauge component
   const SpeedometerGauge = ({ value = 0, maxValue, type, title, icon: Icon }) => {
-    const percentage = calculateGaugePercentage(value, type);
-    const qualityColor = getQualityColor(value, type);
-    const qualityText = getQualityText(value, type);
+    // Handle null or undefined values
+    const safeValue = value !== null && value !== undefined ? value : 0;
+    const percentage = calculateGaugePercentage(safeValue, type);
+    const qualityColor = getQualityColor(safeValue, type);
+    const qualityText = getQualityText(safeValue, type);
     const rotation = percentage * 180;
     
     // Define gradient IDs for each gauge type
@@ -378,7 +410,7 @@ const Dashboard = () => {
             
             {/* Value text */}
             <text x="90" y="60" textAnchor="middle" className="font-bold text-xl fill-gray-800">
-              {value?.toFixed(1) || "0.0"}
+              {safeValue?.toFixed(1) || "0.0"}
             </text>
             <text x="90" y="75" textAnchor="middle" className="text-xs fill-gray-500">
               {type === "ping" ? "ms" : "Kbps"}
@@ -672,13 +704,13 @@ const Dashboard = () => {
                     <div className="bg-indigo-50 rounded-lg p-3">
                       <div className="text-xs text-indigo-600 mb-1">Total Sent</div>
                       <div className="text-xl font-bold text-indigo-700">
-                        {bandwidthData ? formatBandwidth(parseFloat(bandwidthData.total_upload_MB)) : "Loading..."}
+                        {(bandwidthData as BandwidthDataType)?.total_bytes_sent ? formatBandwidth(parseFloat((bandwidthData as BandwidthDataType).total_bytes_sent)) : "Loading..."}
                       </div>
                     </div>
                     <div className="bg-emerald-50 rounded-lg p-3">
                       <div className="text-xs text-emerald-600 mb-1">Total Received</div>
                       <div className="text-xl font-bold text-emerald-700">
-                        {bandwidthData ? formatBandwidth(parseFloat(bandwidthData.total_download_MB)) : "Loading..."}
+                        {(bandwidthData as BandwidthDataType)?.total_bytes_recv ? formatBandwidth(parseFloat((bandwidthData as BandwidthDataType).total_bytes_recv)) : "Loading..."}
                       </div>
                     </div>
                   </div>
@@ -713,39 +745,39 @@ const Dashboard = () => {
                 <>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height={300}>
-                                                <BarChart data={[
-                                                    ...Array.from(new Set(connectedDevices.map(d => d.DeviceType))).map(type => ({
-                                                        name: type,
-                                                        value: connectedDevices.filter(d => d.DeviceType === type).length
-                                                    }))
-                                                ]} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                                                    <XAxis 
-                                                        dataKey="name" 
-                                                        tick={{ fill: '#6b7280' }}
-                                                        axisLine={{ stroke: '#e5e7eb' }}
-                                                    />
-                                                    <YAxis 
-                                                        tick={{ fill: '#6b7280' }}
-                                                        axisLine={{ stroke: '#e5e7eb' }}
-                                                    />
-                                                    <Tooltip 
-                                                        contentStyle={{ 
-                                                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                                                            borderRadius: '8px',
-                                                            border: 'none',
-                                                            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-                                                        }}
-                                                    />
-                                                    <Legend />
-                                                    <Bar 
-                                                        dataKey="value" 
-                                                        name="Devices" 
-                                                        fill="#ff007f" 
-                                                        radius={[4, 4, 0, 0]} 
-                                                    />
-                                                </BarChart>
-                                            </ResponsiveContainer>
+                      <BarChart data={[
+                        ...Array.from(new Set(connectedDevices.map(d => d.DeviceType))).map(type => ({
+                          name: type,
+                          value: connectedDevices.filter(d => d.DeviceType === type).length
+                        }))
+                      ]} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis 
+                          dataKey="name" 
+                          tick={{ fill: '#6b7280' }}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                        />
+                        <YAxis 
+                          tick={{ fill: '#6b7280' }}
+                          axisLine={{ stroke: '#e5e7eb' }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            borderRadius: '8px',
+                            border: 'none',
+                            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                          }}
+                        />
+                        <Legend />
+                        <Bar 
+                          dataKey="value" 
+                          name="Devices" 
+                          fill="#ff007f" 
+                          radius={[4, 4, 0, 0]} 
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4 mt-4">
@@ -772,7 +804,7 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           {/* Download Speed */}
           <SpeedometerGauge 
-            value={realTimeSpeedData?.download_speed} 
+            value={realTimeSpeedData?.download_speed || 0} 
             maxValue={500}
             type="download"
             title="Download Speed"
@@ -781,7 +813,7 @@ const Dashboard = () => {
           
           {/* Upload Speed */}
           <SpeedometerGauge 
-            value={realTimeSpeedData?.upload_speed} 
+            value={realTimeSpeedData?.upload_speed || 0} 
             maxValue={200}
             type="upload"
             title="Upload Speed"
@@ -790,7 +822,7 @@ const Dashboard = () => {
           
           {/* Ping Latency */}
           <SpeedometerGauge 
-            value={realTimeSpeedData?.ping_latency} 
+            value={realTimeSpeedData?.ping_latency || 0} 
             maxValue={200}
             type="ping"
             title="Ping Latency"
@@ -832,32 +864,23 @@ const Dashboard = () => {
           {realTimeSpeedData && !isRunningSpeedTest && (
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-blue-50 p-3 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Download size={16} className="text-blue-600" />
-                  <span className="text-sm text-blue-600 font-medium">Download Speed</span>
-                </div>
+                <div className="text-xs text-blue-600 mb-1">Download Speed</div>
                 <div className="text-xl font-bold text-blue-700 mt-2">
-                  {realTimeSpeedData.download_speed.toFixed(2)} Kbps
+                  {(realTimeSpeedData.download_speed || 0).toFixed(2)} Kbps
                 </div>
               </div>
               
               <div className="bg-indigo-50 p-3 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Upload size={16} className="text-indigo-600" />
-                  <span className="text-sm text-indigo-600 font-medium">Upload Speed</span>
-                </div>
+                <div className="text-xs text-indigo-600 mb-1">Upload Speed</div>
                 <div className="text-xl font-bold text-indigo-700 mt-2">
-                  {realTimeSpeedData.upload_speed.toFixed(2)} Kbps
+                  {(realTimeSpeedData.upload_speed || 0).toFixed(2)} Kbps
                 </div>
               </div>
               
               <div className="bg-emerald-50 p-3 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Activity size={16} className="text-emerald-600" />
-                  <span className="text-sm text-emerald-600 font-medium">Ping Latency</span>
-                </div>
+                <div className="text-xs text-emerald-600 mb-1">Ping Latency</div>
                 <div className="text-xl font-bold text-emerald-700 mt-2">
-                  {realTimeSpeedData.ping_latency.toFixed(1)} ms
+                  {(realTimeSpeedData.ping_latency || 0).toFixed(1)} ms
                 </div>
               </div>
             </div>
@@ -867,7 +890,7 @@ const Dashboard = () => {
         {/* Footer */}
         <div className="mt-auto pt-6">
           <div className="text-center text-sm text-gray-500">
-            <p>© 2025 Network Monitor Dashboard. All rights reserved.</p>
+            <p> 2025 Network Monitor Dashboard. All rights reserved.</p>
             <p className="mt-1">Data refreshes automatically every 30 seconds</p>
           </div>
         </div>
