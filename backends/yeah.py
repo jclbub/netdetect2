@@ -1,7 +1,8 @@
 import requests, uuid, socket
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict, Union
+from pydantic import BaseModel
+from typing import List, Dict, Optional, Union, Any
 import re
 import time
 
@@ -17,17 +18,21 @@ app.add_middleware(
     allow_headers=["*"],
 )   
 
+# API URLs
 HOSTINFO_URL = "http://192.168.3.1/api/system/HostInfo"
-
 WAN_STATUS_URL = "http://192.168.3.1/api/ntwk/wan"
+MAC_FILTER_URL = "http://192.168.3.1/api/ntwk/wlanmacfilter"
+MAC_FILTER_STATUS_URL = "http://192.168.3.1/api/ntwk/wlanmacfilter/status"
 
+# Router authentication
 cookies = {
-    "SessionID_R3": "bUiLgSzGFnxeV1jDzYYcXHMD83jpfOROHCFcEsX8J0F0OjWQ6oIInrBUC3V8P9ZtWOvQHm1gX0qjE0nNuevVizd1GLGBHFPUZNQV3Crq6LXpC6zbV6cX9eq6rNSLaVaB"
+    "SessionID_R3": "8kpgCdtPAChsrNKQxBXx8Pa0JSA8Fnx24AHWH6N5LR65cD6PdM0vg2UrIFn9PhzcMYmHV672gh7Pctp2BebLnwHxP7qAMvPBgVg7CAIARBqC0aFCCeKotesmpdW9FapA"
 }
 
 headers = {
     "Referer": "http://192.168.3.1/",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Content-Type": "application/json"
 }
 
 # Common MAC address prefixes for device types
@@ -50,6 +55,25 @@ DESKTOP_PREFIXES = [
     "00:1B:63", "00:16:CB", "00:1E:C2",  # HP desktops
     "00:19:99", "00:1F:16", "00:20:7B",  # Lenovo desktops
 ]
+
+# MAC filtering request models
+class SingleDeviceRequest(BaseModel):
+    band: str  # "2.4GHz" or "5GHz"
+    mac_address: str
+    host_name: Optional[str] = None
+    policy: int = 1  # 1 for blocklist, 0 for allowlist
+
+class RemoveDeviceRequest(BaseModel):
+    band: str  # "2.4GHz" or "5GHz"
+    mac_address: str
+    policy: int = 1  # 1 for blocklist, 0 for allowlist
+
+class UpdateMacFilterRequest(BaseModel):
+    frequency_band: str  # "2.4GHz" or "5GHz"
+    policy: int = 1  # 1 for blocklist, 0 for allowlist
+    enabled: bool = True
+    mac_addresses: List[str]
+    operation: str = "add"  # "add" or "remove"
 
 def determine_device_type(host_info: Dict) -> str:
     """Determine device type based on router device information."""
@@ -321,6 +345,15 @@ def perform_speed_test() -> Dict:
         print(f"Error occurred during speed test: {e}")
         return {"error": str(e)}
 
+def count_device_types(devices: List[Dict]) -> Dict:
+    """Count the number of each device type."""
+    counts = {"Phone": 0, "Laptop": 0, "Desktop PC": 0, "Unknown": 0}
+    for device in devices:
+        device_type = device.get('DeviceType', 'Unknown')
+        counts[device_type] = counts.get(device_type, 0) + 1
+    return counts
+
+# Original endpoints
 @app.get("/connected-devices", response_model=List[Dict])
 async def fetch_router_data():
     filtered_data = get_filtered_router_data()
@@ -335,7 +368,6 @@ async def fetch_router_data_count():
 
 @app.get("/network-info")
 def network_info():
-
     try:
         local_ip = socket.gethostbyname(socket.getfqdn())
     except socket.gaierror:
@@ -355,7 +387,6 @@ def network_info():
         "loopback_ip": "127.0.0.1"
     }
     return response
-
 
 @app.get("/network-status") 
 async def get_wan_status():
@@ -378,14 +409,6 @@ async def debug_wan_data():
             return {"error": "Failed to fetch WAN data", "status_code": response.status_code}
     except Exception as e:
         return {"error": str(e)}
-
-def count_device_types(devices: List[Dict]) -> Dict:
-    """Count the number of each device type."""
-    counts = {"Phone": 0, "Laptop": 0, "Desktop PC": 0, "Unknown": 0}
-    for device in devices:
-        device_type = device.get('DeviceType', 'Unknown')
-        counts[device_type] = counts.get(device_type, 0) + 1
-    return counts
 
 @app.get("/total-bandwidth-usage")
 def get_total_bandwidth_usage():
@@ -416,6 +439,420 @@ def get_total_bandwidth_usage():
         else:
             return {"error": f"Failed to fetch data, Status Code: {response.status_code}"}
 
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/wireless-devices")
+async def get_wireless_devices():
+    """
+    Get a list of all wireless devices connected to the router.
+    Filters and processes data from the HostInfo API.
+    """
+    try:
+        # Get data directly from the router API
+        response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers)
+        
+        if response.status_code != 200:
+            return {"error": f"Failed to fetch data, Status Code: {response.status_code}"}
+        
+        all_devices = response.json()
+        
+        # Create a list to hold wireless devices
+        wireless_devices = []
+        
+        # Check each device and filter for wireless ones
+        for device in all_devices:
+            is_wireless = (
+                device.get("InterfaceType", "").lower() == "wireless" or
+                device.get("WlanActive", False) == True or
+                "wlan" in device.get("Layer2Interface", "").lower()
+            )
+            
+            # If this is a wireless device, add it to our list
+            if is_wireless:
+                # Create a copy to avoid modifying the original
+                wireless_device = device.copy()
+                
+                # Set the device type
+                wireless_device["DeviceType"] = determine_device_type(device)
+                
+                # Use the actual Active field directly from the data
+                # Don't try to derive it from a non-existent Status field
+                wireless_device["Active"] = bool(device.get("Active", False))
+                
+                # Add signal strength information if not already present
+                if "SignalStrength" not in wireless_device:
+                    # Default signal strength based on active status
+                    wireless_device["signal_strength"] = 70 if wireless_device["Active"] else 30
+                
+                # Try to determine manufacturer from MAC address
+                if not wireless_device.get("Manufacturer") and not wireless_device.get("ActualManu"):
+                    mac_address = wireless_device.get("MACAddress", "")
+                    if mac_address:
+                        # First, check against known prefixes
+                        mac_prefix = mac_address[:8].upper()
+                        manufacturers = {
+                            "00:0A:95": "Apple",
+                            "A4:77:33": "Samsung", 
+                            "20:54:76": "Google",
+                            "00:16:CB": "Dell",
+                            "00:1F:F3": "Apple",
+                            "00:21:6B": "Lenovo",
+                            "F4:4D:30": "Xiaomi",
+                            "FA:10:AF": "Unknown"  # Add the specific one you're seeing
+                        }
+                        
+                        for prefix, manu in manufacturers.items():
+                            if mac_address.upper().startswith(prefix.replace(":", "")):
+                                wireless_device["ActualManu"] = manu
+                                break
+                        
+                        # If we didn't find a match, set to Unknown
+                        if not wireless_device.get("ActualManu"):
+                            wireless_device["ActualManu"] = "Unknown"
+                
+                wireless_devices.append(wireless_device)
+        
+        # If we didn't find any explicitly marked wireless devices,
+        # check for probable wireless devices based on device type
+        if not wireless_devices:
+            for device in all_devices:
+                hostname = device.get("HostName", "").lower()
+                device_type = determine_device_type(device)
+                
+                # These devices are likely to be wireless
+                if (device_type in ["Phone", "Tablet", "Laptop"] or
+                    any(keyword in hostname for keyword in ["phone", "tablet", "ipad", "android", "iphone"])):
+                    
+                    wireless_device = device.copy()
+                    wireless_device["DeviceType"] = device_type
+                    wireless_device["Active"] = bool(device.get("Active", False))
+                    
+                    # Set interface type to wireless if not set
+                    if not wireless_device.get("InterfaceType"):
+                        wireless_device["InterfaceType"] = "Wireless"
+                    
+                    # Add signal strength if not present
+                    if "SignalStrength" not in wireless_device:
+                        wireless_device["signal_strength"] = 70 if wireless_device["Active"] else 30
+                    
+                    # Try to determine manufacturer
+                    if not wireless_device.get("Manufacturer") and not wireless_device.get("ActualManu"):
+                        mac_address = wireless_device.get("MACAddress", "")
+                        if mac_address:
+                            manufacturers = {
+                                "00:0A:95": "Apple",
+                                "A4:77:33": "Samsung", 
+                                "20:54:76": "Google",
+                                "00:16:CB": "Dell",
+                                "00:1F:F3": "Apple",
+                                "00:21:6B": "Lenovo",
+                                "F4:4D:30": "Xiaomi",
+                                "FA:10:AF": "Unknown"
+                            }
+                            for prefix, manu in manufacturers.items():
+                                if mac_address.upper().startswith(prefix.replace(":", "")):
+                                    wireless_device["ActualManu"] = manu
+                                    break
+                    
+                    wireless_devices.append(wireless_device)
+        
+        return wireless_devices
+        
+    except Exception as e:
+        print(f"Error fetching wireless devices: {e}")
+        return {"error": str(e)}
+
+# ===== MAC FILTERING ENDPOINTS =====
+
+# Get MAC filter status (including blocked devices)
+@app.get("/api/mac-filter/status")
+async def get_mac_filter_status() -> Dict[str, Any]:
+    """
+    Get the current MAC filtering status for both 2.4GHz and 5GHz bands.
+    Returns policy type (blocklist/allowlist) and whether filtering is enabled.
+    """
+    try:
+        response = requests.get(MAC_FILTER_STATUS_URL, cookies=cookies, headers=headers)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch MAC filter status: {response.status_code}"
+            )
+        
+        status_data = response.json()
+        
+        # Process the data into a more usable format
+        result = {}
+        
+        for band_data in status_data:
+            band = band_data.get("Band")
+            if band in ["2.4GHz", "5GHz"]:
+                result[band] = {
+                    "enabled": band_data.get("Enable", False),
+                    "policy_value": band_data.get("Policy", 1),  # 0=allowlist, 1=blocklist
+                    "policy_name": "blocklist" if band_data.get("Policy", 1) == 1 else "allowlist"
+                }
+        
+        return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting MAC filter status: {str(e)}")
+
+# Get blocked devices
+@app.get("/api/mac-filter/blocked-devices")
+async def get_blocked_devices() -> Dict[str, Any]:
+    """
+    Get a list of all blocked devices for both 2.4GHz and 5GHz bands.
+    """
+    try:
+        response = requests.get(MAC_FILTER_URL, cookies=cookies, headers=headers)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch blocked devices: {response.status_code}"
+            )
+        
+        data = response.json()
+        
+        # Process the data into a more usable format by band
+        blocked_devices = {
+            "2.4GHz": [],
+            "5GHz": []
+        }
+        
+        for device in data:
+            band = device.get("Band")
+            if band in ["2.4GHz", "5GHz"]:
+                policy = device.get("Policy", 1)
+                
+                # Only include devices in the blocklist policy (1)
+                if policy == 1:
+                    blocked_devices[band].append(device)
+        
+        return blocked_devices
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting blocked devices: {str(e)}")
+
+# Add a single device to the blocklist
+@app.post("/api/mac-filter/add-single-device")
+async def add_device_to_blocklist(request: SingleDeviceRequest):
+    """
+    Add a single device to the MAC filtering blocklist.
+    """
+    try:
+        # Validate band
+        if request.band not in ["2.4GHz", "5GHz"]:
+            raise HTTPException(status_code=400, detail="Invalid band - must be '2.4GHz' or '5GHz'")
+        
+        # Prepare payload for the router API
+        payload = {
+            "Band": request.band,
+            "MACAddress": request.mac_address,
+            "HostName": request.host_name or request.mac_address.replace(":", "-"),
+            "Policy": request.policy  # 1 for blocklist
+        }
+        
+        # Send request to router
+        response = requests.post(MAC_FILTER_URL, 
+                                json=payload, 
+                                cookies=cookies, 
+                                headers=headers)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to add device to blocklist: {response.status_code}"
+            )
+        
+        return {"success": True, "message": "Device added to blocklist"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding device to blocklist: {str(e)}")
+
+# Remove a single device from the blocklist
+@app.post("/api/mac-filter/remove-single-device")
+async def remove_device_from_blocklist(request: RemoveDeviceRequest):
+    """
+    Remove a single device from the MAC filtering blocklist.
+    """
+    try:
+        # Validate band
+        if request.band not in ["2.4GHz", "5GHz"]:
+            raise HTTPException(status_code=400, detail="Invalid band - must be '2.4GHz' or '5GHz'")
+        
+        # First, get the current list of blocked devices
+        blocked_devices_response = await get_blocked_devices()
+        band_devices = blocked_devices_response[request.band]
+        
+        # Find the device to remove
+        device_to_remove = None
+        for device in band_devices:
+            if device["MACAddress"].lower() == request.mac_address.lower():
+                device_to_remove = device
+                break
+        
+        if not device_to_remove:
+            # Device not found in blocklist
+            return {"success": True, "message": "Device not found in blocklist"}
+        
+        # Send delete request to router
+       # Send delete request to router
+        delete_url = f"{MAC_FILTER_URL}/{device_to_remove.get('ID', '')}"
+        response = requests.delete(delete_url, cookies=cookies, headers=headers)
+        
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to remove device from blocklist: {response.status_code}"
+            )
+        
+        return {"success": True, "message": "Device removed from blocklist"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error removing device from blocklist: {str(e)}")
+
+# Update multiple devices at once
+@app.post("/api/mac-filter/update")
+async def update_mac_filter(request: UpdateMacFilterRequest):
+    """
+    Add or remove multiple devices from the MAC filter list at once.
+    """
+    try:
+        # Validate band
+        if request.frequency_band not in ["2.4GHz", "5GHz"]:
+            raise HTTPException(status_code=400, detail="Invalid band - must be '2.4GHz' or '5GHz'")
+        
+        # First, ensure MAC filtering is enabled with the correct policy
+        status_response = requests.get(MAC_FILTER_STATUS_URL, cookies=cookies, headers=headers)
+        
+        if status_response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch MAC filter status: {status_response.status_code}"
+            )
+        
+        status_data = status_response.json()
+        
+        # Find the current band settings
+        band_settings = None
+        for band_data in status_data:
+            if band_data.get("Band") == request.frequency_band:
+                band_settings = band_data
+                break
+        
+        if not band_settings:
+            raise HTTPException(status_code=404, detail=f"Band {request.frequency_band} not found")
+        
+        # Update policy if needed
+        if band_settings.get("Policy") != request.policy or band_settings.get("Enable") != request.enabled:
+            update_payload = {
+                "Band": request.frequency_band,
+                "Enable": request.enabled,
+                "Policy": request.policy
+            }
+            
+            policy_response = requests.put(
+                f"{MAC_FILTER_STATUS_URL}/{band_settings.get('ID', '')}",
+                json=update_payload,
+                cookies=cookies,
+                headers=headers
+            )
+            
+            if policy_response.status_code != 200:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to update MAC filter policy: {policy_response.status_code}"
+                )
+        
+        # Now handle the MAC addresses
+        if request.operation == "add":
+            # Add each MAC address
+            for mac in request.mac_addresses:
+                payload = {
+                    "Band": request.frequency_band,
+                    "MACAddress": mac,
+                    "HostName": mac.replace(":", "-"),
+                    "Policy": request.policy
+                }
+                
+                response = requests.post(MAC_FILTER_URL, 
+                                      json=payload, 
+                                      cookies=cookies, 
+                                      headers=headers)
+                
+                if response.status_code != 200:
+                    # Log error but continue with other devices
+                    print(f"Failed to add MAC {mac}: {response.status_code}")
+            
+            return {"success": True, "message": f"Added {len(request.mac_addresses)} devices to {request.frequency_band}"}
+            
+        elif request.operation == "remove":
+            # First, get current devices
+            blocked_devices_response = await get_blocked_devices()
+            band_devices = blocked_devices_response[request.frequency_band]
+            
+            # Remove each MAC address
+            removed_count = 0
+            for mac in request.mac_addresses:
+                # Find the device to remove
+                for device in band_devices:
+                    if device["MACAddress"].lower() == mac.lower():
+                        # Send delete request
+                        delete_url = f"{MAC_FILTER_URL}/{device.get('ID', '')}"
+                        response = requests.delete(delete_url, cookies=cookies, headers=headers)
+                        
+                        if response.status_code == 200:
+                            removed_count += 1
+                        else:
+                            # Log error but continue with other devices
+                            print(f"Failed to remove MAC {mac}: {response.status_code}")
+                        
+                        break
+            
+            return {"success": True, "message": f"Removed {removed_count} devices from {request.frequency_band}"}
+        
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid operation: {request.operation}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating MAC filter: {str(e)}")
+
+# Debug endpoint for MAC filtering
+@app.get("/api/mac-filter/debug")
+async def debug_mac_filter():
+    """
+    Debug endpoint for MAC filtering.
+    Shows all MAC filter data from the router.
+    """
+    try:
+        # Get status
+        status_response = requests.get(MAC_FILTER_STATUS_URL, cookies=cookies, headers=headers)
+        
+        # Get devices
+        devices_response = requests.get(MAC_FILTER_URL, cookies=cookies, headers=headers)
+        
+        return {
+            "status_code": {
+                "status": status_response.status_code,
+                "devices": devices_response.status_code
+            },
+            "status_data": status_response.json() if status_response.status_code == 200 else None,
+            "devices_data": devices_response.json() if devices_response.status_code == 200 else None
+        }
     except Exception as e:
         return {"error": str(e)}
 

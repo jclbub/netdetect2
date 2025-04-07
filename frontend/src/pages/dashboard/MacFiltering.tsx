@@ -1,418 +1,538 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
-import { Search, Wifi, WifiOff, Info, Shield, Clock, RefreshCw } from "lucide-react";
+import { Search, Wifi, WifiOff, RefreshCw, Clock, Signal, Shield, ShieldOff, AlertTriangle } from "lucide-react";
 import { otherFetch } from "../../hooks/otherFetch";
 
-const MacFiltering = () => {
-    const [connectedDevices, setConnectedDevices] = useState([]);
-    const [macFilter, setMacFilter] = useState("");
-    const [filteredDevices, setFilteredDevices] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [selectedDevices, setSelectedDevices] = useState([]);
-    const [blockMode, setBlockMode] = useState("allow"); // "allow" or "block"
-    const [blockedDevices, setBlockedDevices] = useState([]);
-    const [allowedDevices, setAllowedDevices] = useState([]);
-    const { data, error, loading, refetch } = otherFetch("connected-devices");
+const WirelessDevices = () => {
+  const [wirelessDevices, setWirelessDevices] = useState([]);
+  const [searchFilter, setSearchFilter] = useState("");
+  const [filteredDevices, setFilteredDevices] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [sortConfig, setSortConfig] = useState({ key: 'hostname', direction: 'ascending' });
+  const [blockingDevice, setBlockingDevice] = useState(null);
+  const [actionMessage, setActionMessage] = useState(null);
+  const [selectedFrequencyBand, setSelectedFrequencyBand] = useState("2.4GHz");
+  
+  // API data fetching
+  const { data: devicesData, error: deviceError, loading: deviceLoading, refetch: refetchDevices } 
+      = otherFetch("wireless-devices");
+      
+  // Get blocked devices information
+  const { data: blockedDevicesData, error: blockedError, loading: blockedLoading, refetch: refetchBlocked } 
+      = otherFetch("mac-filter/blocked-devices");
 
-    // Use the same data fetching approach as in ConnectedDevices.tsx
-    useEffect(() => {
-        if (data) {
-            const enhancedDevices = data.connected_devices.map((device, index) => ({
-                id: index + 1,
-                hostname: device.hostname || "Unknown Device",
-                mac_address: device.mac_address,
-                ip_address: device.ip_address,
-                last_seen: new Date().toISOString(),
-                status: device.status || "active",
-                manufacturer: device.manufacturer,
-                device_type: device.device_type,
-                connection_type: device.connection_type || "wireless",
-                bandwidth_sent: parseInt(device.bandwidth_sent) || 0,
-                bandwidth_received: parseInt(device.bandwidth_received) || 0
-            }));
-            
-            setConnectedDevices(enhancedDevices);
-            // Initially mark all devices as allowed
-            setAllowedDevices(enhancedDevices.map(device => device.id));
-            setIsLoading(false);
+  // Process wireless device data when it arrives
+  useEffect(() => {
+    if (devicesData) {
+      const enhancedDevices = devicesData.map((device, index) => ({
+        id: index + 1,
+        hostname: device.HostName || "Unknown Device",
+        mac_address: device.MACAddress || "Unknown",
+        ip_address: device.IPAddress || "Unknown",
+        signal_strength: device.signal_strength || 0,
+        status: device.Active ? "active" : "inactive",
+        manufacturer: device.Manufacturer || device.ActualManu || "Unknown",
+        device_type: device.DeviceType || "Unknown",
+        last_seen: device.LastSeen || new Date().toISOString(),
+        uptime: device.Uptime || "Unknown",
+        bandwidth: {
+          download: device.RxKBytes || 0,
+          upload: device.TxKBytes || 0
+        },
+        is_blocked: false // Default to not blocked, will update when blocked data arrives
+      }));
+      
+      setWirelessDevices(enhancedDevices);
+      setIsLoading(false);
+    }
+  }, [devicesData]);
+  
+  // Update blocked status when blocked devices data arrives
+  useEffect(() => {
+    if (blockedDevicesData && wirelessDevices.length > 0) {
+      // Get the blocked MAC addresses for the selected frequency band
+      const blockedMacs = new Set(
+        (blockedDevicesData[selectedFrequencyBand] || [])
+          .map(device => device.MACAddress.toLowerCase())
+      );
+      
+      // Update wireless devices with blocked status
+      const updatedDevices = wirelessDevices.map(device => ({
+        ...device,
+        is_blocked: blockedMacs.has(device.mac_address.toLowerCase())
+      }));
+      
+      setWirelessDevices(updatedDevices);
+    }
+  }, [blockedDevicesData, selectedFrequencyBand, wirelessDevices]);
+
+  // Filter devices based on search criteria
+  useEffect(() => {
+    let filtered = wirelessDevices;
+    
+    // Apply search filter if present
+    if (searchFilter) {
+      filtered = filtered.filter(device =>
+        (device.hostname && device.hostname.toLowerCase().includes(searchFilter.toLowerCase())) ||
+        (device.mac_address && device.mac_address.toLowerCase().includes(searchFilter.toLowerCase())) ||
+        (device.ip_address && device.ip_address.toLowerCase().includes(searchFilter.toLowerCase())) ||
+        (device.manufacturer && device.manufacturer.toLowerCase().includes(searchFilter.toLowerCase())) ||
+        (device.device_type && device.device_type.toLowerCase().includes(searchFilter.toLowerCase()))
+      );
+    }
+    
+    // Apply sorting
+    if (sortConfig.key) {
+      filtered = [...filtered].sort((a, b) => {
+        if (a[sortConfig.key] < b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? -1 : 1;
         }
-    }, [data]);
-
-    // Filter devices based on search criteria and current mode
-    useEffect(() => {
-        let filtered = connectedDevices;
-        
-        // First filter by search term if present
-        if (macFilter) {
-            filtered = filtered.filter(device =>
-                device.hostname.toLowerCase().includes(macFilter.toLowerCase()) ||
-                device.mac_address.toLowerCase().includes(macFilter.toLowerCase()) ||
-                device.ip_address.toLowerCase().includes(macFilter.toLowerCase())
-            );
+        if (a[sortConfig.key] > b[sortConfig.key]) {
+          return sortConfig.direction === 'ascending' ? 1 : -1;
         }
-        
-        // Then filter by current mode
-        if (blockMode === "allow") {
-            // In allow mode, show only allowed devices
-            filtered = filtered.filter(device => 
-                allowedDevices.includes(device.id)
-            );
-        } else {
-            // In block mode, show only blocked devices
-            filtered = filtered.filter(device => 
-                blockedDevices.includes(device.id)
-            );
-        }
-        
-        setFilteredDevices(filtered);
-    }, [macFilter, connectedDevices, blockMode, allowedDevices, blockedDevices]);
+        return 0;
+      });
+    }
+    
+    setFilteredDevices(filtered);
+  }, [searchFilter, wirelessDevices, sortConfig]);
 
-    const toggleDeviceSelection = (deviceId) => {
-        setSelectedDevices(prev => 
-            prev.includes(deviceId) 
-                ? prev.filter(id => id !== deviceId) 
-                : [...prev, deviceId]
-        );
-    };
+  // Refresh all data
+  const handleRefresh = () => {
+    setIsLoading(true);
+    refetchDevices();
+    refetchBlocked();
+    setTimeout(() => setIsLoading(false), 800);
+  };
 
-    const handleRefresh = () => {
-        setIsLoading(true);
-        refetch().finally(() => {
-            setTimeout(() => setIsLoading(false), 500);
-        });
-    };
+  // Request to sort table
+  const requestSort = (key) => {
+    let direction = 'ascending';
+    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
 
-    const formatTime = (dateString) => {
-        const date = new Date(dateString);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    };
+  // Format bandwidth in a readable way
+  const formatBandwidth = (kbytes) => {
+    if (kbytes < 1024) {
+      return `${kbytes} KB`;
+    } else if (kbytes < 1024 * 1024) {
+      return `${(kbytes / 1024).toFixed(2)} MB`;
+    } else {
+      return `${(kbytes / (1024 * 1024)).toFixed(2)} GB`;
+    }
+  };
 
-    const formatDate = (dateString) => {
-        const date = new Date(dateString);
-        return date.toLocaleDateString();
-    };
-
-    const isToday = (dateString) => {
-        const date = new Date(dateString);
-        const today = new Date();
-        return date.setHours(0, 0, 0, 0) === today.setHours(0, 0, 0, 0);
-    };
-
-    const isDeviceBlocked = (deviceId) => {
-        return blockedDevices.includes(deviceId);
-    };
-
-    const isDeviceAllowed = (deviceId) => {
-        return allowedDevices.includes(deviceId);
-    };
-
-    const getDeviceAccessStatus = (deviceId) => {
-        if (isDeviceAllowed(deviceId)) {
-            return "allowed";
-        } else if (isDeviceBlocked(deviceId)) {
-            return "blocked";
-        } else {
-            // Default to blocked in "allow" mode and allowed in "block" mode
-            return blockMode === "allow" ? "blocked" : "allowed";
-        }
-    };
-
-    const handleApplyRules = () => {
-        if (selectedDevices.length === 0) return;
-        
-        if (blockMode === "allow") {
-            // Add selected devices to allowed list
-            setAllowedDevices(prev => {
-                const newAllowed = [...prev];
-                selectedDevices.forEach(id => {
-                    if (!newAllowed.includes(id)) {
-                        newAllowed.push(id);
-                    }
-                });
-                return newAllowed;
-            });
-            // Remove from blocked list if they were there
-            setBlockedDevices(prev => 
-                prev.filter(id => !selectedDevices.includes(id))
-            );
-        } else {
-            // Add selected devices to blocked list
-            setBlockedDevices(prev => {
-                const newBlocked = [...prev];
-                selectedDevices.forEach(id => {
-                    if (!newBlocked.includes(id)) {
-                        newBlocked.push(id);
-                    }
-                });
-                return newBlocked;
-            });
-            // Remove from allowed list if they were there
-            setAllowedDevices(prev => 
-                prev.filter(id => !selectedDevices.includes(id))
-            );
-        }
-        
-        // Clear selection after applying rules
-        setSelectedDevices([]);
-    };
-
-    const toggleDeviceAccess = (deviceId) => {
-        // Direct toggle implementation - immediately switch the device status
-        if (blockMode === "allow") {
-            // In allow mode, we're viewing allowed devices
-            // Remove the device from allowed and add to blocked
-            setAllowedDevices(prev => prev.filter(id => id !== deviceId));
-            setBlockedDevices(prev => [...prev, deviceId]);
-        } else {
-            // In block mode, we're viewing blocked devices
-            // Remove the device from blocked and add to allowed
-            setBlockedDevices(prev => prev.filter(id => id !== deviceId));
-            setAllowedDevices(prev => [...prev, deviceId]);
-        }
-    };
-
-    // Handle mode change
-    const handleModeChange = (mode) => {
-        setBlockMode(mode);
-        // Clear selection when changing modes
-        setSelectedDevices([]);
-    };
-
-    // Get counts for status bar
-    const getAllowedCount = () => allowedDevices.length;
-    const getBlockedCount = () => blockedDevices.length;
-    const getTotalCount = () => connectedDevices.length;
-
+  // Render signal strength indicator
+  const renderSignalStrength = (strength) => {
+    // Normalize strength value (assuming it's in dBm or percentage)
+    const normalized = typeof strength === 'number' ? Math.min(100, Math.max(0, strength)) : 0;
+    
+    // Determine color based on strength
+    let color;
+    if (normalized >= 70) color = "text-green-500";
+    else if (normalized >= 40) color = "text-yellow-500";
+    else color = "text-red-500";
+    
     return (
-        <div className="relative flex flex-row w-full bg-gray-50 min-h-screen">
-            <Sidebar />
-            <div className="flex-1 p-6">
-                <div className="bg-white rounded-xl shadow-md overflow-hidden">
-                    {/* Header */}
-                    <div className="bg-indigo-600 px-6 py-4">
-                        <div className="flex justify-between items-center">
-                            <h1 className="text-xl font-bold text-white">MAC Address Filtering</h1>
-                            <button 
-                                onClick={handleRefresh} 
-                                className="p-2 bg-indigo-700 rounded-full text-white hover:bg-indigo-800 transition-colors"
-                            >
-                                <RefreshCw size={18} className={isLoading || loading ? "animate-spin" : ""} />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Filter mode selector */}
-                    <div className="bg-indigo-50 px-6 py-3 border-b border-indigo-100">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                                <Shield size={18} className="text-indigo-600" />
-                                <span className="text-sm font-medium text-gray-700">Filter Mode:</span>
-                            </div>
-                            <div className="flex rounded-md shadow-sm overflow-hidden">
-                                <button 
-                                    className={`px-4 py-2 text-sm font-medium border ${blockMode === 'allow' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                                    onClick={() => handleModeChange('allow')}
-                                >
-                                    Allow Listed ({getAllowedCount()})
-                                </button>
-                                <button 
-                                    className={`px-4 py-2 text-sm font-medium border ${blockMode === 'block' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                                    onClick={() => handleModeChange('block')}
-                                >
-                                    Block Listed ({getBlockedCount()})
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Search and actions */}
-                    <div className="px-6 py-4 border-b border-gray-200">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div className="relative flex-1">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <Search size={18} className="text-gray-400" />
-                                </div>
-                                <input
-                                    type="text"
-                                    placeholder="Search by device name, MAC address, or IP..."
-                                    value={macFilter}
-                                    onChange={(e) => setMacFilter(e.target.value)}
-                                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                />
-                            </div>
-                            <div className="flex space-x-2">
-                                <button 
-                                    disabled={selectedDevices.length === 0}
-                                    onClick={handleApplyRules}
-                                    className={`px-4 py-2 rounded-md text-sm font-medium ${selectedDevices.length > 0 ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-500 cursor-not-allowed'} transition-colors`}
-                                >
-                                    {blockMode === 'allow' ? 'Allow Selected' : 'Block Selected'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Device list */}
-                    {(isLoading || loading) ? (
-                        <div className="py-12 flex justify-center items-center">
-                            <div className="animate-pulse text-center">
-                                <div className="mx-auto h-12 w-12 rounded-full bg-indigo-200 mb-4"></div>
-                                <div className="h-4 bg-indigo-100 rounded w-32 mx-auto"></div>
-                            </div>
-                        </div>
-                    ) : error ? (
-                        <div className="py-12 text-center text-red-500">
-                            <div className="mx-auto h-12 w-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
-                                <Info size={24} className="text-red-400" />
-                            </div>
-                            <p>Error loading devices: {error.message || "Unknown error"}</p>
-                            <button 
-                                onClick={handleRefresh} 
-                                className="mt-2 text-indigo-600 hover:text-indigo-800"
-                            >
-                                Try again
-                            </button>
-                        </div>
-                    ) : filteredDevices.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            <input
-                                                type="checkbox"
-                                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                                onChange={() => {
-                                                    if (selectedDevices.length === filteredDevices.length) {
-                                                        setSelectedDevices([]);
-                                                    } else {
-                                                        setSelectedDevices(filteredDevices.map(d => d.id));
-                                                    }
-                                                }}
-                                                checked={selectedDevices.length === filteredDevices.length && filteredDevices.length > 0}
-                                            />
-                                        </th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Device</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MAC Address</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {filteredDevices.map(device => (
-                                        <tr key={device.id} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <input
-                                                    type="checkbox"
-                                                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                                    checked={selectedDevices.includes(device.id)}
-                                                    onChange={() => toggleDeviceSelection(device.id)}
-                                                />
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                    <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
-                                                        {device.status === 'active' ? (
-                                                            <Wifi size={16} className="text-green-600" />
-                                                        ) : (
-                                                            <WifiOff size={16} className="text-gray-500" />
-                                                        )}
-                                                    </div>
-                                                    <div className="ml-4">
-                                                        <div className="text-sm font-medium text-gray-900">{device.hostname}</div>
-                                                        <div className="text-xs text-gray-500">{device.device_type}</div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm font-mono text-gray-900">{device.mac_address}</div>
-                                                <div className="text-xs text-gray-500">{device.manufacturer}</div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="text-sm font-mono text-gray-900">{device.ip_address}</div>
-                                                <div className="text-xs text-gray-500">{device.connection_type}</div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                    <Clock size={14} className="text-gray-400 mr-1" />
-                                                    <div className="text-sm text-gray-500">
-                                                        {isToday(device.last_seen) ? 
-                                                            `Today at ${formatTime(device.last_seen)}` : 
-                                                            formatDate(device.last_seen)
-                                                        }
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                    {device.status === 'active' ? 'Online' : 'Offline'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                <button 
-                                                    onClick={() => toggleDeviceAccess(device.id)}
-                                                    className={`px-3 py-1 rounded text-xs font-medium ${
-                                                        blockMode === 'allow' 
-                                                            ? 'bg-red-100 text-red-800 hover:bg-red-200' 
-                                                            : 'bg-green-100 text-green-800 hover:bg-green-200'
-                                                    } transition-colors`}
-                                                >
-                                                    {blockMode === 'allow' ? 'Block' : 'Allow'}
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : (
-                        <div className="py-12 text-center text-gray-500">
-                            <div className="mx-auto h-12 w-12 rounded-full bg-gray-200 flex items-center justify-center mb-4">
-                                <Info size={24} className="text-gray-400" />
-                            </div>
-                            <p>
-                                {macFilter 
-                                    ? "No devices found matching your search." 
-                                    : blockMode === "allow" 
-                                        ? "No devices in the allow list." 
-                                        : "No devices in the block list."
-                                }
-                            </p>
-                            {macFilter && (
-                                <button 
-                                    onClick={() => setMacFilter("")} 
-                                    className="mt-2 text-indigo-600 hover:text-indigo-800"
-                                >
-                                    Clear search
-                                </button>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Footer with info */}
-                    <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
-                        <div className="flex items-center justify-between text-sm text-gray-500">
-                            <div className="flex items-center">
-                                <Info size={16} className="mr-2 text-indigo-500" />
-                                {blockMode === 'allow' ? 
-                                    "Only devices on the allowlist can connect to your network." : 
-                                    "All devices can connect except those on the blocklist."
-                                }
-                            </div>
-                            <div>
-                                {blockMode === 'allow' 
-                                    ? `${getAllowedCount()} of ${getTotalCount()} devices allowed` 
-                                    : `${getBlockedCount()} of ${getTotalCount()} devices blocked`
-                                }
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+      <div className="flex items-center">
+        <Signal size={16} className={color} />
+        <span className="ml-1">{normalized}%</span>
+      </div>
     );
+  };
+
+  // Format uptime to readable format
+  const formatUptime = (uptime) => {
+    if (uptime === "Unknown") return uptime;
+    
+    // Assuming uptime is in seconds
+    const seconds = parseInt(uptime);
+    if (isNaN(seconds)) return uptime;
+    
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  };
+  
+  // Handle device blocking
+  const handleBlockDevice = async (device) => {
+    setBlockingDevice(device.id);
+    try {
+      const response = await fetch("/api/mac-filter/add-single-device", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          band: selectedFrequencyBand,
+          mac_address: device.mac_address,
+          host_name: device.hostname,
+          policy: 1 // Block policy
+        }),
+      });
+      
+      if (response.ok) {
+        // Update device status locally
+        const updatedDevices = wirelessDevices.map(d => 
+          d.id === device.id ? { ...d, is_blocked: true } : d
+        );
+        setWirelessDevices(updatedDevices);
+        
+        // Show success message
+        setActionMessage({
+          type: "success",
+          text: `Device ${device.hostname} has been blocked`
+        });
+        
+        // Refresh blocked devices
+        refetchBlocked();
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to block device");
+      }
+    } catch (error) {
+      console.error("Error blocking device:", error);
+      setActionMessage({
+        type: "error",
+        text: error.message || "Failed to block device"
+      });
+    } finally {
+      setBlockingDevice(null);
+      // Clear message after a delay
+      setTimeout(() => setActionMessage(null), 3000);
+    }
+  };
+  
+  // Handle device unblocking
+  const handleUnblockDevice = async (device) => {
+    setBlockingDevice(device.id);
+    try {
+      const response = await fetch("/api/mac-filter/remove-single-device", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          band: selectedFrequencyBand,
+          mac_address: device.mac_address,
+          policy: 1 // Block policy
+        }),
+      });
+      
+      if (response.ok) {
+        // Update device status locally
+        const updatedDevices = wirelessDevices.map(d => 
+          d.id === device.id ? { ...d, is_blocked: false } : d
+        );
+        setWirelessDevices(updatedDevices);
+        
+        // Show success message
+        setActionMessage({
+          type: "success",
+          text: `Device ${device.hostname} has been unblocked`
+        });
+        
+        // Refresh blocked devices
+        refetchBlocked();
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to unblock device");
+      }
+    } catch (error) {
+      console.error("Error unblocking device:", error);
+      setActionMessage({
+        type: "error",
+        text: error.message || "Failed to unblock device"
+      });
+    } finally {
+      setBlockingDevice(null);
+      // Clear message after a delay
+      setTimeout(() => setActionMessage(null), 3000);
+    }
+  };
+  
+  // Handle frequency band change
+  const handleBandChange = (band) => {
+    setSelectedFrequencyBand(band);
+  };
+
+  return (
+    <div className="relative flex flex-row w-full bg-gray-50 min-h-screen">
+      <Sidebar />
+      <div className="flex-1 p-6">
+        <div className="bg-white rounded-xl shadow-md overflow-hidden">
+          {/* Header */}
+          <div className="bg-blue-600 px-6 py-4">
+            <div className="flex justify-between items-center">
+              <h1 className="text-xl font-bold text-white">Wireless Devices</h1>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={handleRefresh} 
+                  className="p-2 bg-blue-700 rounded-full text-white hover:bg-blue-800 transition-colors"
+                >
+                  <RefreshCw size={18} className={isLoading ? "animate-spin" : ""} />
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          {/* Frequency band selector */}
+          <div className="bg-blue-50 px-6 py-2 border-b border-blue-100">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <span className="text-sm font-medium text-gray-700">Wi-Fi Band for Blocking:</span>
+                <div className="flex rounded-md shadow-sm overflow-hidden">
+                  <button 
+                    className={`px-3 py-1 text-sm font-medium border ${selectedFrequencyBand === '2.4GHz' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    onClick={() => handleBandChange('2.4GHz')}
+                    disabled={blockingDevice !== null}
+                  >
+                    2.4 GHz
+                  </button>
+                  <button 
+                    className={`px-3 py-1 text-sm font-medium border ${selectedFrequencyBand === '5GHz' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    onClick={() => handleBandChange('5GHz')}
+                    disabled={blockingDevice !== null}
+                  >
+                    5 GHz
+                  </button>
+                </div>
+              </div>
+              <div className="flex items-center">
+                <Shield size={18} className="text-blue-600 mr-2" />
+                <span className="text-sm font-medium text-gray-700">
+                  Blocking {blockedDevicesData && blockedDevicesData[selectedFrequencyBand] 
+                    ? blockedDevicesData[selectedFrequencyBand].length 
+                    : 0} device(s)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Search */}
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search size={18} className="text-gray-400" />
+              </div>
+              <input
+                type="text"
+                placeholder="Search by device name, MAC address, IP address, manufacturer..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+          
+          {/* Action message */}
+          {actionMessage && (
+            <div className={`px-6 py-2 ${actionMessage.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              <div className="flex items-center">
+                <AlertTriangle size={16} className="mr-2" />
+                <span className="text-sm">{actionMessage.text}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Device list */}
+          {isLoading ? (
+            <div className="py-12 flex justify-center items-center">
+              <div className="animate-pulse text-center">
+                <div className="mx-auto h-12 w-12 rounded-full bg-blue-200 mb-4"></div>
+                <div className="h-4 bg-blue-100 rounded w-32 mx-auto"></div>
+              </div>
+            </div>
+          ) : deviceError ? (
+            <div className="py-12 text-center text-red-500">
+              <p>Error loading data: {deviceError}</p>
+              <button 
+                onClick={handleRefresh} 
+                className="mt-2 text-blue-600 hover:text-blue-800"
+              >
+                Try again
+              </button>
+            </div>
+          ) : filteredDevices.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => requestSort('hostname')}
+                    >
+                      Device
+                      {sortConfig.key === 'hostname' && (
+                        <span className="ml-1">{sortConfig.direction === 'ascending' ? '↑' : '↓'}</span>
+                      )}
+                    </th>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => requestSort('mac_address')}
+                    >
+                      MAC Address
+                      {sortConfig.key === 'mac_address' && (
+                        <span className="ml-1">{sortConfig.direction === 'ascending' ? '↑' : '↓'}</span>
+                      )}
+                    </th>
+                    <th 
+                      scope="col" 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      onClick={() => requestSort('ip_address')}
+                    >
+                      IP Address
+                      {sortConfig.key === 'ip_address' && (
+                        <span className="ml-1">{sortConfig.direction === 'ascending' ? '↑' : '↓'}</span>
+                      )}
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Signal
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Bandwidth
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredDevices.map(device => (
+                    <tr key={device.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
+                            {device.status === 'active' ? (
+                              <Wifi size={16} className="text-green-600" />
+                            ) : (
+                              <WifiOff size={16} className="text-gray-500" />
+                            )}
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">{device.hostname}</div>
+                            <div className="text-xs text-gray-500">{device.device_type}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-mono text-gray-900">{device.mac_address}</div>
+                        <div className="text-xs text-gray-500">{device.manufacturer}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-mono text-gray-900">{device.ip_address}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {renderSignalStrength(device.signal_strength)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-xs text-gray-500">
+                          <div className="flex items-center">
+                            <span className="text-blue-500">↓</span> {formatBandwidth(device.bandwidth.download)}
+                          </div>
+                          <div className="flex items-center">
+                            <span className="text-green-500">↑</span> {formatBandwidth(device.bandwidth.upload)}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex flex-col space-y-1">
+                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            device.status === 'active' 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {device.status === 'active' ? 'Connected' : 'Disconnected'}
+                          </span>
+                          
+                          {device.is_blocked && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                              Blocked
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {device.is_blocked ? (
+                          <button
+                            onClick={() => handleUnblockDevice(device)}
+                            disabled={blockingDevice === device.id}
+                            className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
+                              blockingDevice === device.id
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : 'bg-green-100 text-green-800 hover:bg-green-200'
+                            } transition-colors`}
+                          >
+                            <ShieldOff size={14} className="mr-1" />
+                            {blockingDevice === device.id ? 'Unblocking...' : 'Unblock'}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleBlockDevice(device)}
+                            disabled={blockingDevice === device.id}
+                            className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
+                              blockingDevice === device.id
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : 'bg-red-100 text-red-800 hover:bg-red-200'
+                            } transition-colors`}
+                          >
+                            <Shield size={14} className="mr-1" />
+                            {blockingDevice === device.id ? 'Blocking...' : 'Block'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="py-12 text-center text-gray-500">
+              <p>
+                {searchFilter 
+                  ? "No wireless devices found matching your search." 
+                  : "No wireless devices connected."
+                }
+              </p>
+              {searchFilter && (
+                <button 
+                  onClick={() => setSearchFilter("")} 
+                  className="mt-2 text-blue-600 hover:text-blue-800"
+                >
+                  Clear search
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Footer with info */}
+          <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
+            <div className="flex items-center justify-between text-sm text-gray-500">
+              <div>
+                {filteredDevices.length} device(s) found
+              </div>
+              <div className="flex items-center">
+                <Shield size={14} className="mr-1 text-red-500" />
+                <span>Blocking applies to {selectedFrequencyBand} network</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
-export default MacFiltering;
+export default WirelessDevices;

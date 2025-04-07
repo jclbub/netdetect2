@@ -12,7 +12,7 @@ const ConnectedDevices = () => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [viewMode, setViewMode] = useState("list"); // "list", "grid", or "map"
     const { data, error, loading, refetch } = otherFetch("connected-devices");
-    console.log(data)
+
 
     useEffect(() => {
         if (data) {
@@ -188,7 +188,7 @@ const ConnectedDevices = () => {
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Manufacturer</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Device Type</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Connection</th>
-                        {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Status</th> */}
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Status</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Download</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">Upload</th>
                     </tr>
@@ -225,11 +225,11 @@ const ConnectedDevices = () => {
                                     </div>
                                 </td>
 
-                                {/* <td className="px-6 py-4 whitespace-nowrap">
+                                <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${device.status === "active" ? "text-green-600" : "text-amber-600"} `}>
                                         {device && device.status === 'active' ? 'Active' : 'Idle'}
                                     </span>
-                                </td> */}
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center text-blue-600">
                                         <ArrowDown size={14} className="mr-1" />
