@@ -1,25 +1,127 @@
 import React, { useState, useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
-import { Search, Wifi, WifiOff, RefreshCw, Clock, Signal, Shield, ShieldOff, AlertTriangle } from "lucide-react";
+import { Search, Wifi, WifiOff, RefreshCw, Shield, ShieldOff, AlertTriangle, Check, X, Settings, Signal} from "lucide-react";
 import { otherFetch } from "../../hooks/otherFetch";
+import axios from 'axios';
 
 const WirelessDevices = () => {
   const [wirelessDevices, setWirelessDevices] = useState([]);
+  const [blockedDevices, setBlockedDevices] = useState([]); // New state for blocked devices
   const [searchFilter, setSearchFilter] = useState("");
   const [filteredDevices, setFilteredDevices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState({ key: 'hostname', direction: 'ascending' });
   const [blockingDevice, setBlockingDevice] = useState(null);
   const [actionMessage, setActionMessage] = useState(null);
-  const [selectedFrequencyBand, setSelectedFrequencyBand] = useState("2.4GHz");
+  const [macFilteringEnabled, setMacFilteringEnabled] = useState(true);
+  const [macFilteringPolicy, setMacFilteringPolicy] = useState("allowlist");
+  const [viewMode, setViewMode] = useState("all"); // "all" or "blocked"
   
   // API data fetching
   const { data: devicesData, error: deviceError, loading: deviceLoading, refetch: refetchDevices } 
       = otherFetch("wireless-devices");
       
-  // Get blocked devices information
-  const { data: blockedDevicesData, error: blockedError, loading: blockedLoading, refetch: refetchBlocked } 
-      = otherFetch("mac-filter/blocked-devices");
+  // Get blocked devices information - using the new enhanced API
+  const { data: macFilterData, error: macFilterError, loading: macFilterLoading, refetch: refetchMacFilter } 
+      = otherFetch("blocked-devices");
+
+  // Fetch blocked devices directly from the API
+  const fetchBlockedDevices = async () => {
+    try {
+      setIsLoading(true);
+      const response = await axios.get('http://localhost:8000/blocked-devices');
+      if (response.status === 200) {
+        // Process blocked devices data
+        const processedBlockedDevices = processBlockedDevices(response.data);
+        setBlockedDevices(processedBlockedDevices);
+      } else {
+        throw new Error('Failed to fetch blocked devices');
+      }
+    } catch (error) {
+      console.error("Error fetching blocked devices:", error);
+      setActionMessage({
+        type: "error",
+        text: `Failed to load blocked devices: ${error.message}`
+      });
+      setTimeout(() => setActionMessage(null), 3000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Process blocked devices data from API
+  const processBlockedDevices = (data) => {
+    let allBlockedDevices = [];
+    
+    // Extract blocked devices from both 2.4GHz and 5GHz bands
+    if (data['2.4GHz'] && Array.isArray(data['2.4GHz'].blocked_devices)) {
+      const devices24GHz = data['2.4GHz'].blocked_devices.map((device, index) => ({
+        id: `blocked-${index}-24g`,
+        hostname: device.HostName || "Unknown Device",
+        mac_address: device.MACAddress || "Unknown",
+        ip_address: device.IPAddress || "Unknown",
+        signal_strength: device.signal_strength || 0,
+        status: device.Active ? "active" : "inactive",
+        manufacturer: device.Manufacturer || device.ActualManu || "Unknown",
+        device_type: device.DeviceType || "Unknown",
+        last_seen: device.LastSeen || new Date().toISOString(),
+        uptime: device.Uptime || "Unknown",
+        bandwidth: {
+          download: device.RxKBytes || 0,
+          upload: device.TxKBytes || 0
+        },
+        is_blocked: true,
+        is_allowed: false,
+        added_on: device.AddedOn || null,
+        band: "2.4GHz"
+      }));
+      
+      allBlockedDevices = [...allBlockedDevices, ...devices24GHz];
+    }
+    
+    if (data['5GHz'] && Array.isArray(data['5GHz'].blocked_devices)) {
+      const devices5GHz = data['5GHz'].blocked_devices.map((device, index) => ({
+        id: `blocked-${index}-5g`,
+        hostname: device.HostName || "Unknown Device",
+        mac_address: device.MACAddress || "Unknown",
+        ip_address: device.IPAddress || "Unknown",
+        signal_strength: device.signal_strength || 0,
+        status: device.Active ? "active" : "inactive",
+        manufacturer: device.Manufacturer || device.ActualManu || "Unknown",
+        device_type: device.DeviceType || "Unknown",
+        last_seen: device.LastSeen || new Date().toISOString(),
+        uptime: device.Uptime || "Unknown",
+        bandwidth: {
+          download: device.RxKBytes || 0,
+          upload: device.TxKBytes || 0
+        },
+        is_blocked: true,
+        is_allowed: false,
+        added_on: device.AddedOn || null,
+        band: "5GHz"
+      }));
+      
+      allBlockedDevices = [...allBlockedDevices, ...devices5GHz];
+    }
+    
+    // Remove duplicates based on MAC address
+    const uniqueDevices = [];
+    const seenMacs = new Set();
+    
+    allBlockedDevices.forEach(device => {
+      if (!seenMacs.has(device.mac_address)) {
+        seenMacs.add(device.mac_address);
+        uniqueDevices.push(device);
+      }
+    });
+    
+    return uniqueDevices;
+  };
+
+  // Initial data load
+  useEffect(() => {
+    fetchBlockedDevices();
+  }, []);
 
   // Process wireless device data when it arrives
   useEffect(() => {
@@ -39,7 +141,9 @@ const WirelessDevices = () => {
           download: device.RxKBytes || 0,
           upload: device.TxKBytes || 0
         },
-        is_blocked: false // Default to not blocked, will update when blocked data arrives
+        is_blocked: false, // Default to not blocked, will update when filter data arrives
+        is_allowed: false, // Default to not explicitly allowed
+        added_on: null // Will be updated when filter data arrives
       }));
       
       setWirelessDevices(enhancedDevices);
@@ -47,28 +151,115 @@ const WirelessDevices = () => {
     }
   }, [devicesData]);
   
-  // Update blocked status when blocked devices data arrives
+  // Update MAC filtering status when data arrives
   useEffect(() => {
-    if (blockedDevicesData && wirelessDevices.length > 0) {
-      // Get the blocked MAC addresses for the selected frequency band
-      const blockedMacs = new Set(
-        (blockedDevicesData[selectedFrequencyBand] || [])
-          .map(device => device.MACAddress.toLowerCase())
-      );
+    if (macFilterData) {
+      // Check for error in response
+      if (macFilterData.error) {
+        console.error("Error fetching MAC filter data:", macFilterData.error);
+        setActionMessage({
+          type: "error",
+          text: `Failed to load blocked devices: ${macFilterData.error}`
+        });
+        setTimeout(() => setActionMessage(null), 3000);
+        return;
+      }
       
-      // Update wireless devices with blocked status
-      const updatedDevices = wirelessDevices.map(device => ({
-        ...device,
-        is_blocked: blockedMacs.has(device.mac_address.toLowerCase())
-      }));
+      // For simplicity, combine blocked devices from both bands
+      const allBlockedDevices = [];
+      const allAllowedDevices = [];
       
-      setWirelessDevices(updatedDevices);
+      // Process data for each frequency band
+      if ('2.4GHz' in macFilterData) {
+        // Update MAC filtering settings from 2.4GHz
+        const band24 = macFilterData['2.4GHz'];
+        setMacFilteringEnabled(band24.enabled);
+        // Convert numeric policy: 0 = allowlist, 1 = blocklist
+        setMacFilteringPolicy(band24.policy === 0 ? "allowlist" : "blocklist");
+        
+        // Add blocked and allowed devices
+        if (Array.isArray(band24.blocked_devices)) {
+          allBlockedDevices.push(...band24.blocked_devices);
+        }
+        
+        if (Array.isArray(band24.allowed_devices)) {
+          allAllowedDevices.push(...band24.allowed_devices);
+        }
+      }
+      
+      if ('5GHz' in macFilterData) {
+        // Add blocked and allowed devices from 5GHz
+        const band5 = macFilterData['5GHz'];
+        if (Array.isArray(band5.blocked_devices)) {
+          allBlockedDevices.push(...band5.blocked_devices);
+        }
+        
+        if (Array.isArray(band5.allowed_devices)) {
+          allAllowedDevices.push(...band5.allowed_devices);
+        }
+      }
+      
+      // Handle case where we get raw data array from backend
+      if (Array.isArray(macFilterData)) {
+        macFilterData.forEach(bandConfig => {
+          const frequencyBand = bandConfig.FrequencyBand;
+          
+          // Get the first band config to set the policy (preferring 2.4GHz if available)
+          if (frequencyBand === '2.4GHz' || !macFilteringPolicy) {
+            setMacFilteringEnabled(bandConfig.MACAddressControlEnabled === true);
+            setMacFilteringPolicy(bandConfig.MacFilterPolicy === 0 ? "allowlist" : "blocklist");
+          }
+          
+          // Add blocked and allowed devices
+          if (Array.isArray(bandConfig.BMACAddresses)) {
+            allBlockedDevices.push(...bandConfig.BMACAddresses);
+          }
+          
+          if (Array.isArray(bandConfig.WMACAddresses)) {
+            allAllowedDevices.push(...bandConfig.WMACAddresses);
+          }
+        });
+      }
+      
+      // If we have wireless devices, update their blocked/allowed status
+      if (wirelessDevices.length > 0) {
+        // Create maps for quick MAC lookup
+        const blockedMacsMap = new Map();
+        allBlockedDevices.forEach(device => {
+          if (device && device.MACAddress) {
+            blockedMacsMap.set(device.MACAddress.toLowerCase(), device);
+          }
+        });
+        
+        const allowedMacsMap = new Map();
+        allAllowedDevices.forEach(device => {
+          if (device && device.MACAddress) {
+            allowedMacsMap.set(device.MACAddress.toLowerCase(), device);
+          }
+        });
+        
+        // Update wireless devices with blocked/allowed status
+        const updatedDevices = wirelessDevices.map(device => {
+          const macLower = device.mac_address.toLowerCase();
+          const blockedInfo = blockedMacsMap.get(macLower);
+          const allowedInfo = allowedMacsMap.get(macLower);
+          
+          return {
+            ...device,
+            is_blocked: !!blockedInfo,
+            is_allowed: !!allowedInfo,
+            added_on: blockedInfo ? blockedInfo.AddedOn : null
+          };
+        });
+        
+        setWirelessDevices(updatedDevices);
+      }
     }
-  }, [blockedDevicesData, selectedFrequencyBand, wirelessDevices]);
+  }, [macFilterData, wirelessDevices]);
 
-  // Filter devices based on search criteria
+  // Filter devices based on search criteria and view mode
   useEffect(() => {
-    let filtered = wirelessDevices;
+    let filtered = viewMode === "blocked" ? blockedDevices : wirelessDevices;
     
     // Apply search filter if present
     if (searchFilter) {
@@ -95,13 +286,14 @@ const WirelessDevices = () => {
     }
     
     setFilteredDevices(filtered);
-  }, [searchFilter, wirelessDevices, sortConfig]);
+  }, [searchFilter, wirelessDevices, blockedDevices, sortConfig, viewMode]);
 
   // Refresh all data
   const handleRefresh = () => {
     setIsLoading(true);
     refetchDevices();
-    refetchBlocked();
+    refetchMacFilter();
+    fetchBlockedDevices();
     setTimeout(() => setIsLoading(false), 800);
   };
 
@@ -125,6 +317,12 @@ const WirelessDevices = () => {
     }
   };
 
+  // Format date in a readable way
+  const formatDate = (dateString) => {
+    if (!dateString) return "Unknown";
+    return new Date(dateString).toLocaleString();
+  };
+
   // Render signal strength indicator
   const renderSignalStrength = (strength) => {
     // Normalize strength value (assuming it's in dBm or percentage)
@@ -144,41 +342,17 @@ const WirelessDevices = () => {
     );
   };
 
-  // Format uptime to readable format
-  const formatUptime = (uptime) => {
-    if (uptime === "Unknown") return uptime;
-    
-    // Assuming uptime is in seconds
-    const seconds = parseInt(uptime);
-    if (isNaN(seconds)) return uptime;
-    
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    
-    if (days > 0) return `${days}d ${hours}h`;
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    return `${minutes}m`;
-  };
-  
   // Handle device blocking
   const handleBlockDevice = async (device) => {
     setBlockingDevice(device.id);
     try {
-      const response = await fetch("/api/mac-filter/add-single-device", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          band: selectedFrequencyBand,
-          mac_address: device.mac_address,
-          host_name: device.hostname,
-          policy: 1 // Block policy
-        }),
+      const res = await axios.post('http://127.0.0.1:8001/macfilter', {
+        device_name: device?.hostname,
+        mac_address: device?.mac_address,
+        list_type: "blocklist"
       });
-      
-      if (response.ok) {
+
+      if (res.status === 200) {
         // Update device status locally
         const updatedDevices = wirelessDevices.map(d => 
           d.id === device.id ? { ...d, is_blocked: true } : d
@@ -191,11 +365,10 @@ const WirelessDevices = () => {
           text: `Device ${device.hostname} has been blocked`
         });
         
-        // Refresh blocked devices
-        refetchBlocked();
+        // Refresh blocked devices list
+        fetchBlockedDevices();
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to block device");
+        throw new Error("Failed to block device");
       }
     } catch (error) {
       console.error("Error blocking device:", error);
@@ -212,44 +385,38 @@ const WirelessDevices = () => {
   
   // Handle device unblocking
   const handleUnblockDevice = async (device) => {
+    console.log(device)
     setBlockingDevice(device.id);
     try {
-      const response = await fetch("/api/mac-filter/remove-single-device", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          band: selectedFrequencyBand,
-          mac_address: device.mac_address,
-          policy: 1 // Block policy
-        }),
+      const res = await axios.post('http://127.0.0.1:8001/macfilter', {
+        device_name: device?.hostname,
+        mac_address: device?.mac_address,
+        list_type: "unblocked"
       });
-      
-      if (response.ok) {
+
+      if (res.status === 200) {
         // Update device status locally
         const updatedDevices = wirelessDevices.map(d => 
-          d.id === device.id ? { ...d, is_blocked: false } : d
+          d.id === device.id ? { ...d, is_blocked: true } : d
         );
         setWirelessDevices(updatedDevices);
         
         // Show success message
         setActionMessage({
           type: "success",
-          text: `Device ${device.hostname} has been unblocked`
+          text: `Device ${device.hostname} has been blocked`
         });
         
-        // Refresh blocked devices
-        refetchBlocked();
+        // Refresh blocked devices list
+        fetchBlockedDevices();
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to unblock device");
+        throw new Error("Failed to block device");
       }
     } catch (error) {
-      console.error("Error unblocking device:", error);
+      console.error("Error blocking device:", error);
       setActionMessage({
         type: "error",
-        text: error.message || "Failed to unblock device"
+        text: error.message || "Failed to block device"
       });
     } finally {
       setBlockingDevice(null);
@@ -257,21 +424,37 @@ const WirelessDevices = () => {
       setTimeout(() => setActionMessage(null), 3000);
     }
   };
-  
-  // Handle frequency band change
-  const handleBandChange = (band) => {
-    setSelectedFrequencyBand(band);
+
+  // Get device details
+  const showDeviceDetails = (device) => {
+    // Here you would implement the logic to show device details
+    // For example, open a modal or navigate to a details page
+    setActionMessage({
+      type: "info",
+      text: `Showing details for ${device.hostname}`
+    });
+    
+    // Clear message after a delay
+    setTimeout(() => setActionMessage(null), 3000);
+  };
+
+  // Get total number of blocked devices
+  const getTotalBlockedDevices = () => {
+    return blockedDevices.length;
   };
 
   return (
     <div className="relative flex flex-row w-full bg-gray-50 min-h-screen">
       <Sidebar />
       <div className="flex-1 p-6">
-        <div className="bg-white rounded-xl shadow-md overflow-hidden">
+        {/* Main Wireless Devices Section */}
+        <div className="bg-white rounded-xl shadow-md overflow-hidden mb-6">
           {/* Header */}
           <div className="bg-blue-600 px-6 py-4">
             <div className="flex justify-between items-center">
-              <h1 className="text-xl font-bold text-white">Wireless Devices</h1>
+              <h1 className="text-xl font-bold text-white">
+                {viewMode === "blocked" ? "Blocked Devices" : "Wireless Devices"}
+              </h1>
               <div className="flex items-center space-x-2">
                 <button 
                   onClick={handleRefresh} 
@@ -283,35 +466,37 @@ const WirelessDevices = () => {
             </div>
           </div>
           
-          {/* Frequency band selector */}
-          <div className="bg-blue-50 px-6 py-2 border-b border-blue-100">
+          {/* View mode controls */}
+          <div className="bg-blue-50 px-6 py-3 border-b border-blue-100">
             <div className="flex justify-between items-center">
               <div className="flex items-center space-x-3">
-                <span className="text-sm font-medium text-gray-700">Wi-Fi Band for Blocking:</span>
+                <span className="text-sm font-medium text-gray-700">View:</span>
                 <div className="flex rounded-md shadow-sm overflow-hidden">
                   <button 
-                    className={`px-3 py-1 text-sm font-medium border ${selectedFrequencyBand === '2.4GHz' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                    onClick={() => handleBandChange('2.4GHz')}
+                    className={`px-3 py-1 text-sm font-medium border ${viewMode === 'all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    onClick={() => setViewMode('all')}
                     disabled={blockingDevice !== null}
                   >
-                    2.4 GHz
+                    All Devices
                   </button>
                   <button 
-                    className={`px-3 py-1 text-sm font-medium border ${selectedFrequencyBand === '5GHz' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                    onClick={() => handleBandChange('5GHz')}
+                    className={`px-3 py-1 text-sm font-medium border ${viewMode === 'blocked' ? 'bg-red-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    onClick={() => setViewMode('blocked')}
                     disabled={blockingDevice !== null}
                   >
-                    5 GHz
+                    <Shield size={14} className="inline mr-1" />
+                    Blocked Devices ({getTotalBlockedDevices()})
                   </button>
                 </div>
               </div>
+              
               <div className="flex items-center">
-                <Shield size={18} className="text-blue-600 mr-2" />
-                <span className="text-sm font-medium text-gray-700">
-                  Blocking {blockedDevicesData && blockedDevicesData[selectedFrequencyBand] 
-                    ? blockedDevicesData[selectedFrequencyBand].length 
-                    : 0} device(s)
-                </span>
+                <div className="flex items-center">
+                  <Shield size={18} className="text-blue-600 mr-2" />
+                  <span className="text-sm font-medium text-gray-700">
+                    {blockedDevices.length === 0 ? "No devices blocked" : `${blockedDevices.length} device(s) blocked`}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -334,9 +519,15 @@ const WirelessDevices = () => {
           
           {/* Action message */}
           {actionMessage && (
-            <div className={`px-6 py-2 ${actionMessage.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+            <div className={`px-6 py-2 ${
+              actionMessage.type === 'success' ? 'bg-green-50 text-green-800' : 
+              actionMessage.type === 'info' ? 'bg-blue-50 text-blue-800' : 
+              'bg-red-50 text-red-800'
+            }`}>
               <div className="flex items-center">
-                <AlertTriangle size={16} className="mr-2" />
+                {actionMessage.type === 'success' ? <Check size={16} className="mr-2" /> : 
+                 actionMessage.type === 'info' ? <AlertTriangle size={16} className="mr-2" /> : 
+                 <X size={16} className="mr-2" />}
                 <span className="text-sm">{actionMessage.text}</span>
               </div>
             </div>
@@ -404,6 +595,16 @@ const WirelessDevices = () => {
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
+                    {viewMode === "blocked" && (
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Blocked On
+                      </th>
+                    )}
+                    {viewMode === "blocked" && (
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Band
+                      </th>
+                    )}
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -411,11 +612,15 @@ const WirelessDevices = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredDevices.map(device => (
-                    <tr key={device.id} className="hover:bg-gray-50">
+                    <tr key={device.id} className={`hover:bg-gray-50 ${device.is_blocked || viewMode === "blocked" ? 'bg-red-50' : ''}`}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
-                          <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'}`}>
-                            {device.status === 'active' ? (
+                          <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center ${
+                            device.is_blocked || viewMode === "blocked" ? 'bg-red-100' : device.status === 'active' ? 'bg-green-100' : 'bg-gray-100'
+                          }`}>
+                            {device.is_blocked || viewMode === "blocked" ? (
+                              <ShieldOff size={16} className="text-red-600" />
+                            ) : device.status === 'active' ? (
                               <Wifi size={16} className="text-green-600" />
                             ) : (
                               <WifiOff size={16} className="text-gray-500" />
@@ -457,41 +662,73 @@ const WirelessDevices = () => {
                             {device.status === 'active' ? 'Connected' : 'Disconnected'}
                           </span>
                           
-                          {device.is_blocked && (
+                          {/* Show blocked status */}
+                          {(device.is_blocked || viewMode === "blocked") && (
                             <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
                               Blocked
                             </span>
                           )}
+                          {/* Show allowed status (if in allowlist mode) */}
+                          {macFilteringPolicy === "allowlist" && device.is_allowed && (
+                            <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                              Allowed
+                            </span>
+                          )}
                         </div>
                       </td>
+                      {viewMode === "blocked" && (
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {formatDate(device.added_on)}
+                          </div>
+                        </td>
+                      )}
+                      {viewMode === "blocked" && (
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {device.band || "All bands"}
+                          </div>
+                        </td>
+                      )}
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {device.is_blocked ? (
+                        <div className="flex space-x-2">
+                          {device.is_blocked || viewMode === "blocked" ? (
+                            <button
+                              onClick={() => handleUnblockDevice(device)}
+                              disabled={blockingDevice === device.id}
+                              className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
+                                blockingDevice === device.id
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : 'bg-green-100 text-green-800 hover:bg-green-200'
+                              } transition-colors`}
+                            >
+                              <ShieldOff size={14} className="mr-1" />
+                              {blockingDevice === device.id ? 'Unblocking...' : 'Unblock'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleBlockDevice(device)}
+                              disabled={blockingDevice === device.id}
+                              className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
+                                blockingDevice === device.id
+                                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : 'bg-red-100 text-red-800 hover:bg-red-200'
+                              } transition-colors`}
+                            >
+                              <Shield size={14} className="mr-1" />
+                              {blockingDevice === device.id ? 'Blocking...' : 'Block'}
+                            </button>
+                          )}
+                          
+                          {/* Additional action button */}
                           <button
-                            onClick={() => handleUnblockDevice(device)}
-                            disabled={blockingDevice === device.id}
-                            className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
-                              blockingDevice === device.id
-                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                : 'bg-green-100 text-green-800 hover:bg-green-200'
-                            } transition-colors`}
+                            onClick={() => showDeviceDetails(device)}
+                            className="flex items-center px-3 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors"
                           >
-                            <ShieldOff size={14} className="mr-1" />
-                            {blockingDevice === device.id ? 'Unblocking...' : 'Unblock'}
+                            <Settings size={14} className="mr-1" />
+                            Details
                           </button>
-                        ) : (
-                          <button
-                            onClick={() => handleBlockDevice(device)}
-                            disabled={blockingDevice === device.id}
-                            className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
-                              blockingDevice === device.id
-                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                : 'bg-red-100 text-red-800 hover:bg-red-200'
-                            } transition-colors`}
-                          >
-                            <Shield size={14} className="mr-1" />
-                            {blockingDevice === device.id ? 'Blocking...' : 'Block'}
-                          </button>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -502,8 +739,10 @@ const WirelessDevices = () => {
             <div className="py-12 text-center text-gray-500">
               <p>
                 {searchFilter 
-                  ? "No wireless devices found matching your search." 
-                  : "No wireless devices connected."
+                  ? "No devices found matching your search." 
+                  : viewMode === "blocked"
+                    ? "No blocked devices found."
+                    : "No wireless devices connected."
                 }
               </p>
               {searchFilter && (
@@ -514,6 +753,14 @@ const WirelessDevices = () => {
                   Clear search
                 </button>
               )}
+              {viewMode === "blocked" && blockedDevices.length === 0 && (
+                <button 
+                  onClick={() => setViewMode("all")} 
+                  className="mt-2 text-blue-600 hover:text-blue-800"
+                >
+                  View all devices
+                </button>
+              )}
             </div>
           )}
 
@@ -521,11 +768,19 @@ const WirelessDevices = () => {
           <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
             <div className="flex items-center justify-between text-sm text-gray-500">
               <div>
-                {filteredDevices.length} device(s) found
+                {viewMode === "all" 
+                  ? `${filteredDevices.length} device(s) found`
+                  : `${filteredDevices.length} blocked device(s) shown`
+                }
               </div>
-              <div className="flex items-center">
-                <Shield size={14} className="mr-1 text-red-500" />
-                <span>Blocking applies to {selectedFrequencyBand} network</span>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center">
+                  <Shield size={14} className="mr-1 text-blue-500" />
+                  <span>Total Blocked: {blockedDevices.length}</span>
+                </div>
+                <div className="flex items-center">
+                  <span>Last Updated: {new Date().toLocaleTimeString()}</span>
+                </div>
               </div>
             </div>
           </div>
