@@ -25,6 +25,8 @@ app.add_middleware(
 DEFAULT_ROUTER_URL = "http://192.168.3.1"
 DEFAULT_PASSWORD = "pass@AX3"
 
+
+
 # Request Body Model
 class DeviceRequest(BaseModel):
     device_name: str
@@ -102,6 +104,8 @@ def perform_selenium_actions(device_name, mac_address, list_type):
 # API Endpoint to trigger the Selenium logic
 @app.post("/macfilter")
 async def configure_wifi(request: DeviceRequest):
+    print("pressed")
+    print(request)
     try:
         # Call the function to perform the selenium actions
         perform_selenium_actions(

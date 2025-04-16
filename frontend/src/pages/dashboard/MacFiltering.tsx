@@ -343,13 +343,14 @@ const WirelessDevices = () => {
   };
 
   // Handle device blocking
-  const handleBlockDevice = async (device) => {
+  const handleBlockDevice = async (device, method) => {
+    console.log(device.id)
     setBlockingDevice(device.id);
     try {
-      const res = await axios.post('http://127.0.0.1:8001/macfilter', {
+      const res = await axios.post('http://127.0.0.1:8000/macfilter', {
         device_name: device?.hostname,
         mac_address: device?.mac_address,
-        list_type: "blocklist"
+        list_type: "block"
       });
 
       if (res.status === 200) {
@@ -384,15 +385,19 @@ const WirelessDevices = () => {
   };
   
   // Handle device unblocking
-  const handleUnblockDevice = async (device) => {
-    console.log(device)
+  const handleUnblockDevice = async (device, order) => {
+    console.log(order)
+    console.log(device.id)
     setBlockingDevice(device.id);
     try {
-      const res = await axios.post('http://127.0.0.1:8001/macfilter', {
+      const res = await axios.post('http://127.0.0.1:8000/unblock', {
         device_name: device?.hostname,
         mac_address: device?.mac_address,
-        list_type: "unblocked"
+        list_type: "unblocked",
+        order: order
       });
+
+      console.log(res.data)
 
       if (res.status === 200) {
         // Update device status locally
@@ -414,13 +419,13 @@ const WirelessDevices = () => {
       }
     } catch (error) {
       console.error("Error blocking device:", error);
+      window.location.reload()
       setActionMessage({
         type: "error",
         text: error.message || "Failed to block device"
       });
     } finally {
       setBlockingDevice(null);
-      // Clear message after a delay
       setTimeout(() => setActionMessage(null), 3000);
     }
   };
@@ -659,7 +664,7 @@ const WirelessDevices = () => {
                               ? 'bg-green-100 text-green-800' 
                               : 'bg-gray-100 text-gray-800'
                           }`}>
-                            {device.status === 'active' ? 'Connected' : 'Disconnected'}
+                            {device.status === 'active' ? 'Active' : 'Idle'}
                           </span>
                           
                           {/* Show blocked status */}
@@ -694,7 +699,7 @@ const WirelessDevices = () => {
                         <div className="flex space-x-2">
                           {device.is_blocked || viewMode === "blocked" ? (
                             <button
-                              onClick={() => handleUnblockDevice(device)}
+                              onClick={() => handleUnblockDevice(device, 2)}
                               disabled={blockingDevice === device.id}
                               className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
                                 blockingDevice === device.id
@@ -707,7 +712,7 @@ const WirelessDevices = () => {
                             </button>
                           ) : (
                             <button
-                              onClick={() => handleBlockDevice(device)}
+                              onClick={() => handleBlockDevice(device, "blocklist")}
                               disabled={blockingDevice === device.id}
                               className={`flex items-center px-3 py-1 rounded text-xs font-medium ${
                                 blockingDevice === device.id

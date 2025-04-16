@@ -5,6 +5,14 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional, Union, Any
 import re
 import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import chromedriver_autoinstaller
+
+# Install chromedriver automatically if it's not installed
+chromedriver_autoinstaller.install()
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -18,23 +26,115 @@ app.add_middleware(
     allow_headers=["*"],
 )   
 
+# Router configuration
+DEFAULT_ROUTER_URL = "http://192.168.3.1"
+DEFAULT_PASSWORD = "pass@AX3"
+
 # API URLs
-HOSTINFO_URL = "http://192.168.3.1/api/system/HostInfo"
-WAN_STATUS_URL = "http://192.168.3.1/api/ntwk/wan"
-MAC_FILTER_URL = "http://192.168.3.1/api/ntwk/wlanmacfilter"
-MAC_FILTER_STATUS_URL = "http://192.168.3.1/api/ntwk/wlanmacfilter/status"
-WLAN_FILTER_ENHANCE_URL = "http://192.168.3.1/api/ntwk/wlanfilterenhance"
+HOSTINFO_URL = f"{DEFAULT_ROUTER_URL}/api/system/HostInfo"
+WAN_STATUS_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wan"
+MAC_FILTER_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wlanmacfilter"
+MAC_FILTER_STATUS_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wlanmacfilter/status"
+WLAN_FILTER_ENHANCE_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wlanfilterenhance"
 
-# Router authentication
-cookies = {
-    "SessionID_R3": "XYWAlCv3CWauwD5tJ9d57HzEyXQ0co6CUrWKiQds2NbGTYoaTjTS0pfVSnnayU6JzLj43qlZJMbH4pE85EByCl3abykKsAUoITp4cqHcIMssYHazjdT7amAIOeo3nFcX"
-}
-
+# Global cookies variable to store session
+cookies = {}
 headers = {
-    "Referer": "http://192.168.3.1/",
+    "Referer": DEFAULT_ROUTER_URL,
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     "Content-Type": "application/json"
 }
+
+# Function to automatically log in and get cookies
+def get_router_session():
+    """
+    Opens a Chrome browser window in minimized state, logs into the router,
+    extracts session cookies for API requests, and keeps the browser open.
+    """
+    global cookies
+    global headers
+    global driver  # Make driver global so it stays open
+    
+    # Check if we already have valid cookies
+    if cookies and "SessionID_R3" in cookies:
+        try:
+            test_response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers, timeout=5)
+            if test_response.status_code == 200:
+                print("Using existing session cookies")
+                return cookies
+        except Exception as e:
+            print(f"Existing cookies failed: {e}")
+    
+    print("Opening Chrome (minimized) to get new session cookies...")
+    
+    try:
+        options = webdriver.ChromeOptions()
+        # Add start-minimized to open Chrome in minimized state
+        options.add_argument('--start-minimized')
+        driver = webdriver.Chrome(options=options)
+        wait = WebDriverWait(driver, 15)
+
+        # Open the router login page
+        driver.get(f"{DEFAULT_ROUTER_URL}/html/index.html#!/login")
+        
+        # Step 1: Enter password
+        password_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']")))
+        password_input.clear()
+        password_input.send_keys(DEFAULT_PASSWORD)
+
+        # Step 2: Click the login button
+        login_button = wait.until(EC.element_to_be_clickable((By.ID, "loginbtn")))
+        login_button.click()
+        
+        # Wait for login to complete
+        try:
+            wait.until(EC.url_contains("index.html#!/home"))
+        except:
+            # Give it some time to redirect
+            time.sleep(5)
+        
+        # Extract cookies from the browser
+        selenium_cookies = driver.get_cookies()
+        
+        # Get current URL for referer
+        current_url = driver.current_url
+        
+        # Process cookies into the format needed for requests
+        session_cookies = {}
+        for cookie in selenium_cookies:
+            session_cookies[cookie['name']] = cookie['value']
+            print(f"Cookie found: {cookie['name']} = {cookie['value']}")
+        
+        # Update global cookies and headers
+        cookies = session_cookies
+        
+        # Set basic headers
+        headers = {
+            "Referer": current_url,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Content-Type": "application/json"
+        }
+        
+        print("Login successful, cookies obtained")
+        print("Chrome browser remains open (minimized)")
+        
+        # DON'T close the browser - leave it open
+        # driver.quit() is removed
+        
+        return session_cookies
+        
+    except Exception as e:
+        print(f"Error during login process: {e}")
+        return {}
+
+# def close_browser():
+#     """
+#     Function to manually close the Chrome browser when needed.
+#     """
+#     global driver
+#     if 'driver' in globals() and driver:
+#         driver.quit()
+#         print("Chrome browser closed")
 
 # Common MAC address prefixes for device types
 MOBILE_PREFIXES = [
@@ -75,6 +175,17 @@ class UpdateMacFilterRequest(BaseModel):
     enabled: bool = True
     mac_addresses: List[str]
     operation: str = "add"  # "add" or "remove"
+
+class DeviceRequest(BaseModel):
+    device_name: Optional[str] = None
+    mac_address: Optional[str] = None
+    list_type: str  # "blocklist", "trustlist", or "unblocked"
+
+class DeviceRequests(BaseModel):
+    device_name: Optional[str] = None
+    mac_address: Optional[str] = None
+    list_type: str  # "blocklist", "trustlist", or "unblocked"
+    order: int
 
 def determine_device_type(host_info: Dict) -> str:
     """Determine device type based on router device information."""
@@ -125,9 +236,6 @@ def determine_device_type(host_info: Dict) -> str:
         return "Desktop PC"
     
     # For the specific example you provided
-    # if host_info.get('HostName') == "MAY-LAPTOP":
-    #     return "Laptop"
-    
     if host_info.get('HostName') == "D-destroyer":
         return "Laptop"
         
@@ -136,7 +244,10 @@ def determine_device_type(host_info: Dict) -> str:
 
 def get_filtered_router_data() -> Union[List[Dict[str, any]], Dict[str, any]]:
     try:
-        response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers)
+        # Ensure we have a valid session
+        session_cookies = get_router_session()
+        
+        response = requests.get(HOSTINFO_URL, cookies=session_cookies, headers=headers)
 
         if response.status_code == 200:
             data = response.json()  
@@ -165,10 +276,93 @@ def get_filtered_router_data() -> Union[List[Dict[str, any]], Dict[str, any]]:
         print(f"Error occurred while fetching router data: {e}")
         return {"error": str(e)}
 
+@app.post("/macfilter")
+async def configure_wifi(request: DeviceRequest):
+    print("pressed")
+    print(request)
+    try:
+        # Call the function to perform the selenium actions
+        perform_selenium_actions(
+            device_name=request.device_name,
+            mac_address=request.mac_address,
+            list_type=request.list_type
+        )
+        return {"status": "success", "message": f"Device {request.device_name} added successfully to {request.list_type}!"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="An error occurred while configuring the router.")
+    
+@app.post("/unblock")
+async def unblock_connection(request: DeviceRequests):
+    print("pressed")
+    print(request)
+    try:
+        # Call the function to perform the selenium actions
+        unblock_device(
+            device_name=request.device_name,
+            mac_address=request.mac_address,
+            list_type=request.list_type,
+            order=request.order
+        )
+        return {"status": "success", "message": f"Device {request.device_name} added successfully to {request.list_type}!"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="An error occurred while configuring the router.")
+
+# Get router login session status
+@app.get("/session-status")
+async def check_session_status():
+    """Check if the current session with the router is valid."""
+    try:
+        global cookies
+        
+        # If we don't have cookies yet, try to get them
+        if not cookies or "SessionID_R3" not in cookies:
+            new_cookies = get_router_session()
+            return {
+                "status": "new_session" if new_cookies else "failed",
+                "message": "Successfully created new session" if new_cookies else "Failed to create session",
+                "has_session": bool(new_cookies)
+            }
+            
+        # Test the existing cookies with a simple API call
+        test_response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers, timeout=5)
+        
+        return {
+            "status": "valid" if test_response.status_code == 200 else "invalid",
+            "message": "Session is valid" if test_response.status_code == 200 else "Session is invalid",
+            "has_session": test_response.status_code == 200,
+            "status_code": test_response.status_code
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error checking session: {str(e)}",
+            "has_session": False
+        }
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Initialize a session at startup
+    print("Initializing router session...")
+    init_cookies = get_router_session()
+    if init_cookies:
+        print("Successfully initialized router session")
+    else:
+        print("Failed to initialize router session, will try again when endpoints are accessed")
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
 def get_network_speed() -> Dict:
     """Get the current network speed information from the router."""
     try:
-        response = requests.get(WAN_STATUS_URL, cookies=cookies, headers=headers)
+        # Ensure we have a valid session
+        session_cookies = get_router_session()
+        
+        response = requests.get(WAN_STATUS_URL, cookies=session_cookies, headers=headers)
         
         if response.status_code == 200:
             data = response.json()
@@ -220,8 +414,11 @@ def get_network_speed() -> Dict:
 def perform_speed_test() -> Dict:
     """Perform a speed test by measuring data transfer over time."""
     try:
+        # Ensure we have a valid session
+        session_cookies = get_router_session()
+        
         # First request to get initial data
-        start_response = requests.get(WAN_STATUS_URL, cookies=cookies, headers=headers)
+        start_response = requests.get(WAN_STATUS_URL, cookies=session_cookies, headers=headers)
         if start_response.status_code != 200:
             return {"error": "Failed to start speed test", "status_code": start_response.status_code}
         
@@ -282,7 +479,7 @@ def perform_speed_test() -> Dict:
         time.sleep(test_duration)
         
         # Second request to get data after the time interval
-        end_response = requests.get(WAN_STATUS_URL, cookies=cookies, headers=headers)
+        end_response = requests.get(WAN_STATUS_URL, cookies=session_cookies, headers=headers)
         if end_response.status_code != 200:
             return {"error": "Failed to complete speed test", "status_code": end_response.status_code}
         
@@ -354,6 +551,147 @@ def count_device_types(devices: List[Dict]) -> Dict:
         counts[device_type] = counts.get(device_type, 0) + 1
     return counts
 
+def perform_selenium_actions(device_name, mac_address, list_type):
+    # Set up Chrome WebDriver
+    driver = webdriver.Chrome()
+    wait = WebDriverWait(driver, 10)
+
+    # Open the router login page
+    driver.get(f"{DEFAULT_ROUTER_URL}/html/index.html#!/login")
+
+    # Step 1: Enter password
+    password_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']")))
+    password_input.send_keys(DEFAULT_PASSWORD)
+
+    # Step 2: Click the login button
+    login_button = wait.until(EC.element_to_be_clickable((By.ID, "loginbtn")))
+    login_button.click()
+
+    # Step 3: Click "More" icon
+    want_more_icon = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div.want_more")))
+    want_more_icon.click()
+
+    # Step 4: Click "Wi-Fi Settings"
+    wifi_settings_btn = wait.until(EC.element_to_be_clickable((By.ID, "wifisettingsparent_menuId")))
+    wifi_settings_btn.click()
+
+    # Step 5: Click "Wi-Fi Access Control"
+    wifi_access_control_btn = wait.until(EC.element_to_be_clickable((By.ID, "wlanaccess_menuId")))
+    wifi_access_control_btn.click()
+
+    # Step 6: Perform actions based on list_type (blocklist, trustlist, or unblock)
+    if list_type == "block":
+        add_button = wait.until(EC.element_to_be_clickable((By.ID, "wlanaccess_btn")))
+        add_button.click()
+        device_name_input = wait.until(EC.presence_of_element_located((By.ID, "wlanaccess_host_ctrl")))
+        mac_address_input = wait.until(EC.presence_of_element_located((By.ID, "wlanaccess_adddevice_ctrl")))
+        device_name_input.send_keys(device_name)
+        mac_address_input.send_keys(mac_address)
+        ok_button = wait.until(EC.element_to_be_clickable((By.ID, "submit")))
+        ok_button.click()
+    elif list_type == "unblocked":
+        try:
+            delete_buttons = driver.find_elements(By.CSS_SELECTOR, "div.ic-del")
+            
+            if len(delete_buttons) > 0:
+                target_button = driver.find_element(By.ID, f"wlan_access_{mac_address}_id_delid")
+                target_button.click()
+                time.sleep(1)
+                
+                # Click the save button
+                save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
+                save_button.click()
+                
+                print(f"Attempted to unblock device")
+            else:
+                print("No delete buttons found")
+                
+        except Exception as e:
+            print(f"Error unblocking device: {e}")
+            raise
+    
+    # Step 10: Click the "Save" button
+    save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
+    save_button.click()
+
+    # Close the browser
+    # driver.quit()
+
+
+
+def unblock_device(device_name, mac_address, list_type, order):
+    # Set up Chrome WebDriver
+    driver = webdriver.Chrome()
+    wait = WebDriverWait(driver, 10)
+
+    # Open the router login page
+    driver.get(f"{DEFAULT_ROUTER_URL}/html/index.html#!/login")
+
+    # Step 1: Enter password
+    password_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']")))
+    password_input.send_keys(DEFAULT_PASSWORD)
+
+    # Step 2: Click the login button
+    login_button = wait.until(EC.element_to_be_clickable((By.ID, "loginbtn")))
+    login_button.click()
+
+    # Step 3: Click "More" icon
+    want_more_icon = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div.want_more")))
+    want_more_icon.click()
+
+    wifi_settings_btn = wait.until(EC.element_to_be_clickable((By.ID, "wifisettingsparent_menuId")))
+    wifi_settings_btn.click()
+
+    wifi_access_control_btn = wait.until(EC.element_to_be_clickable((By.ID, "wlanaccess_menuId")))
+    wifi_access_control_btn.click()
+
+    try:
+        # Let's add a pause to make sure the page is fully loaded
+        time.sleep(3)
+        
+        # Print all IDs on the page to debug what's actually available
+        print("All elements with IDs on page:")
+        elements_with_id = driver.find_elements(By.XPATH, "//*[@id]")
+        for element in elements_with_id:
+            print(f"ID: {element.get_attribute('id')}")
+        
+        # Try finding by class instead of ID
+        delete_buttons = driver.find_elements(By.CLASS_NAME, "ic-del")
+        print(f"Found {len(delete_buttons)} elements with class 'ic-del'")
+        
+        if len(delete_buttons) > 0:
+            # Click the first delete button (or whichever one you need)
+            delete_buttons[0].click()
+            print("Clicked delete button using class name")
+            
+            # Wait a moment and click save
+            time.sleep(1)
+            save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
+            save_button.click()
+            
+            print(f"Attempted to unblock device")
+        else:
+            print("No delete buttons found with class 'ic-del'")
+            
+    except Exception as e:
+        print(f"Error unblocking device: {e}")
+        # Get page source for debugging
+        print("Page source snippet:")
+        try:
+            print(driver.page_source[:1000])  # First 1000 chars
+        except:
+            pass
+        raise
+    
+    # Step 10: Click the "Save" button
+    save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
+    save_button.click()
+
+    # Close the browser
+    # driver.quit()
+
+
+
 # Original endpoints
 @app.get("/connected-devices", response_model=List[Dict])
 async def fetch_router_data():
@@ -403,7 +741,10 @@ async def run_speed_test():
 async def debug_wan_data():
     """Get raw WAN data for debugging purposes."""
     try:
-        response = requests.get(WAN_STATUS_URL, cookies=cookies, headers=headers)
+        # Ensure we have a valid session
+        session_cookies = get_router_session()
+        
+        response = requests.get(WAN_STATUS_URL, cookies=session_cookies, headers=headers)
         if response.status_code == 200:
             return response.json()
         else:
@@ -414,7 +755,10 @@ async def debug_wan_data():
 @app.get("/total-bandwidth-usage")
 def get_total_bandwidth_usage():
     try:
-        response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers)
+        # Ensure we have a valid session
+        session_cookies = get_router_session()
+        
+        response = requests.get(HOSTINFO_URL, cookies=session_cookies, headers=headers)
 
         if response.status_code == 200:
             data = response.json()
@@ -450,8 +794,11 @@ async def get_wireless_devices():
     Filters and processes data from the HostInfo API.
     """
     try:
+        # Ensure we have a valid session
+        session_cookies = get_router_session()
+        
         # Get data directly from the router API
-        response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers)
+        response = requests.get(HOSTINFO_URL, cookies=session_cookies, headers=headers)
         
         if response.status_code != 200:
             return {"error": f"Failed to fetch data, Status Code: {response.status_code}"}
@@ -571,8 +918,11 @@ async def get_blocked_devices():
     Retrieves data from the wlanfilterenhance API.
     """
     try:
+        # Ensure we have a valid session
+        session_cookies = get_router_session()
+        
         # Get data directly from the router's MAC filter API
-        response = requests.get(WLAN_FILTER_ENHANCE_URL, cookies=cookies, headers=headers)
+        response = requests.get(WLAN_FILTER_ENHANCE_URL, cookies=session_cookies, headers=headers)
         
         if response.status_code != 200:
             return {"error": f"Failed to fetch blocked devices, Status Code: {response.status_code}"}
@@ -603,7 +953,7 @@ async def get_blocked_devices():
                 mac_filter_policy = band_config.get("MacFilterPolicy", 1)
                 
                 # Get all devices information to enhance the data
-                all_devices_response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers)
+                all_devices_response = requests.get(HOSTINFO_URL, cookies=session_cookies, headers=headers)
                 all_devices = []
                 if all_devices_response.status_code == 200:
                     all_devices = all_devices_response.json()
@@ -678,8 +1028,3 @@ async def get_blocked_devices():
     except Exception as e:
         print(f"Error fetching blocked devices: {e}")
         return {"error": str(e)}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
