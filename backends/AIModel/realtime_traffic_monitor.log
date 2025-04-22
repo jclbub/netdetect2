@@ -1,0 +1,53 @@
+2025-04-22 15:15:29,118 - WARNING - Traffic classifier model not found, will use rule-based analysis
+2025-04-22 15:15:29,118 - INFO - Starting real-time traffic monitoring...
+2025-04-22 15:15:29,118 - INFO - Real-time traffic monitoring started with 60 second interval
+2025-04-22 15:15:29,196 - INFO - package: mysql.connector.plugins
+2025-04-22 15:15:29,197 - INFO - plugin_name: caching_sha2_password
+2025-04-22 15:15:29,197 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLCachingSHA2PasswordAuthPlugin
+2025-04-22 15:15:29,203 - INFO - Successfully connected to MySQL database
+2025-04-22 15:15:37,053 - INFO - Monitored 107 devices. Traffic types: {}. Alerts: 0
+2025-04-22 15:16:37,398 - INFO - Monitored 107 devices. Traffic types: {}. Alerts: 0
+2025-04-22 15:17:38,063 - INFO - Monitored 107 devices. Traffic types: {}. Alerts: 0
+2025-04-22 15:18:32,610 - INFO - Received signal 2, shutting down...
+2025-04-22 15:18:37,614 - INFO - Received signal 2, shutting down...
+2025-04-22 15:18:37,614 - WARNING - Monitoring is not running
+2025-04-22 15:18:37,696 - INFO - Real-time traffic monitoring stopped
+2025-04-22 15:18:37,696 - ERROR - Error fetching bandwidth data: 2055: Lost connection to MySQL server at 'localhost:3306', system error: Errno 1: [SSL: WRONG_VERSION_NUMBER] wrong version number (_ssl.c:2559)
+2025-04-22 15:18:37,745 - INFO - Successfully connected to MySQL database
+2025-04-22 15:18:38,512 - INFO - Monitored 106 devices. Traffic types: {'video_streaming': 67, 'peer_to_peer': 2, 'voip': 27, 'file_transfer': 2, 'data_backup': 2, 'online_gaming': 1, 'malware_communication': 1}. Alerts: 0
+2025-04-22 15:19:07,889 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:07,889 - WARNING - Monitoring is not running
+2025-04-22 15:19:07,889 - INFO - Database connection closed
+2025-04-22 15:19:09,017 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:09,017 - WARNING - Monitoring is not running
+2025-04-22 15:19:09,472 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:09,472 - WARNING - Monitoring is not running
+2025-04-22 15:19:09,705 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:09,705 - WARNING - Monitoring is not running
+2025-04-22 15:19:09,886 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:09,890 - WARNING - Monitoring is not running
+2025-04-22 15:19:10,073 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:10,074 - WARNING - Monitoring is not running
+2025-04-22 15:19:10,258 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:10,258 - WARNING - Monitoring is not running
+2025-04-22 15:19:10,425 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:10,425 - WARNING - Monitoring is not running
+2025-04-22 15:19:10,594 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:10,594 - WARNING - Monitoring is not running
+2025-04-22 15:19:10,770 - INFO - Received signal 2, shutting down...
+2025-04-22 15:19:10,770 - WARNING - Monitoring is not running
+2025-04-22 15:19:35,870 - WARNING - Traffic classifier model not found, will use rule-based analysis
+2025-04-22 15:19:35,870 - INFO - Starting real-time traffic monitoring...
+2025-04-22 15:19:35,870 - INFO - Real-time traffic monitoring started with 60 second interval
+2025-04-22 15:19:35,929 - INFO - package: mysql.connector.plugins
+2025-04-22 15:19:35,929 - INFO - plugin_name: caching_sha2_password
+2025-04-22 15:19:35,929 - INFO - AUTHENTICATION_PLUGIN_CLASS: MySQLCachingSHA2PasswordAuthPlugin
+2025-04-22 15:19:35,932 - INFO - Successfully connected to MySQL database
+2025-04-22 15:19:44,610 - INFO - Monitored 105 devices. Traffic types: {'video_streaming': 58, 'peer_to_peer': 3, 'voip': 35, 'file_transfer': 3, 'data_backup': 1, 'malware_communication': 1, 'online_gaming': 1}. Alerts: 0
+2025-04-22 15:20:44,905 - INFO - Monitored 103 devices. Traffic types: {'peer_to_peer': 5, 'voip': 37, 'file_transfer': 4, 'video_streaming': 51, 'data_backup': 1, 'malware_communication': 1, 'online_gaming': 1}. Alerts: 0
+2025-04-22 15:21:44,710 - INFO - Monitored 103 devices. Traffic types: {'video_streaming': 48, 'voip': 43, 'file_transfer': 5, 'online_gaming': 1, 'peer_to_peer': 2, 'data_backup': 1}. Alerts: 0
+2025-04-22 15:21:59,197 - INFO - Received signal 2, shutting down...
+2025-04-22 15:22:04,209 - INFO - Received signal 2, shutting down...
+2025-04-22 15:22:04,210 - WARNING - Monitoring is not running
+2025-04-22 15:22:04,223 - INFO - Database connection closed
+2025-04-22 15:22:04,224 - INFO - Real-time traffic monitoring stopped

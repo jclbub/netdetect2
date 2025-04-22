@@ -33,9 +33,6 @@ DEFAULT_PASSWORD = "pass@AX3"
 # API URLs
 HOSTINFO_URL = f"{DEFAULT_ROUTER_URL}/api/system/HostInfo"
 WAN_STATUS_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wan"
-MAC_FILTER_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wlanmacfilter"
-MAC_FILTER_STATUS_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wlanmacfilter/status"
-WLAN_FILTER_ENHANCE_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wlanfilterenhance"
 
 # Global cookies variable to store session
 cookies = {}
@@ -127,66 +124,6 @@ def get_router_session():
         print(f"Error during login process: {e}")
         return {}
 
-# def close_browser():
-#     """
-#     Function to manually close the Chrome browser when needed.
-#     """
-#     global driver
-#     if 'driver' in globals() and driver:
-#         driver.quit()
-#         print("Chrome browser closed")
-
-# Common MAC address prefixes for device types
-MOBILE_PREFIXES = [
-    "00:0A:95", "00:23:76", "00:BB:3A",  # Apple iPhones
-    "A4:77:33", "7C:65:91", "50:55:27",  # Samsung phones
-    "20:54:76", "00:DB:70", "A8:66:7F",  # Google phones
-    "40:4E:36", "9C:B6:D0", "C0:EE:FB",  # Xiaomi phones
-]
-
-LAPTOP_PREFIXES = [
-    "00:16:CB", "00:1E:C2", "00:21:5C",  # Dell laptops
-    "00:1F:F3", "00:21:6A", "00:22:FB",  # Apple MacBooks
-    "00:21:6B", "00:26:18", "00:30:1B",  # Lenovo laptops
-    "00:22:5F", "00:26:55", "00:23:15",  # HP laptops
-]
-
-DESKTOP_PREFIXES = [
-    "00:18:8B", "00:24:E8", "00:25:64",  # Dell desktops
-    "00:1B:63", "00:16:CB", "00:1E:C2",  # HP desktops
-    "00:19:99", "00:1F:16", "00:20:7B",  # Lenovo desktops
-]
-
-# MAC filtering request models
-class SingleDeviceRequest(BaseModel):
-    band: str  # "2.4GHz" or "5GHz"
-    mac_address: str
-    host_name: Optional[str] = None
-    policy: int = 1  # 1 for blocklist, 0 for allowlist
-
-class RemoveDeviceRequest(BaseModel):
-    band: str  # "2.4GHz" or "5GHz"
-    mac_address: str
-    policy: int = 1  # 1 for blocklist, 0 for allowlist
-
-class UpdateMacFilterRequest(BaseModel):
-    frequency_band: str  # "2.4GHz" or "5GHz"
-    policy: int = 1  # 1 for blocklist, 0 for allowlist
-    enabled: bool = True
-    mac_addresses: List[str]
-    operation: str = "add"  # "add" or "remove"
-
-class DeviceRequest(BaseModel):
-    device_name: Optional[str] = None
-    mac_address: Optional[str] = None
-    list_type: str  # "blocklist", "trustlist", or "unblocked"
-
-class DeviceRequests(BaseModel):
-    device_name: Optional[str] = None
-    mac_address: Optional[str] = None
-    list_type: str  # "blocklist", "trustlist", or "unblocked"
-    order: int
-
 def determine_device_type(host_info: Dict) -> str:
     """Determine device type based on router device information."""
     # Check hostname for common device type keywords
@@ -257,13 +194,24 @@ def get_filtered_router_data() -> Union[List[Dict[str, any]], Dict[str, any]]:
             total_bandwidth = 0  # Initialize total bandwidth
 
             for entry in data:
-                if entry.get('HostName'):  # Ensure entry has a HostName
-                    entry['DeviceType'] = determine_device_type(entry)
-                    filtered_data.append(entry)
+                # Include all devices, not just those with hostnames
+                # If hostname is missing, we'll assign a placeholder
+                if not entry.get('HostName'):
+                    # Generate a placeholder hostname based on MAC address or IP if available
+                    if entry.get('MACAddress'):
+                        entry['HostName'] = f"Device-{entry['MACAddress'][-8:].replace(':', '')}"
+                    elif entry.get('IPAddress'):
+                        entry['HostName'] = f"Device-{entry['IPAddress'].replace('.', '-')}"
+                    else:
+                        entry['HostName'] = f"Unknown-Device-{len(filtered_data) + 1}"
+                
+                # Determine device type regardless of hostname
+                entry['DeviceType'] = determine_device_type(entry)
+                filtered_data.append(entry)
 
-                    # Add bandwidth usage (assuming it's in KB or MB)
-                    bandwidth_usage = entry.get("bandwidth_usage", 0)
-                    total_bandwidth += bandwidth_usage  
+                # Add bandwidth usage (assuming it's in KB or MB)
+                bandwidth_usage = entry.get("bandwidth_usage", 0)
+                total_bandwidth += bandwidth_usage  
 
             print(f"Total Bandwidth Usage: {total_bandwidth} MB")  # Adjust units if needed
             return filtered_data
@@ -275,86 +223,6 @@ def get_filtered_router_data() -> Union[List[Dict[str, any]], Dict[str, any]]:
     except Exception as e:
         print(f"Error occurred while fetching router data: {e}")
         return {"error": str(e)}
-
-@app.post("/macfilter")
-async def configure_wifi(request: DeviceRequest):
-    print("pressed")
-    print(request)
-    try:
-        # Call the function to perform the selenium actions
-        perform_selenium_actions(
-            device_name=request.device_name,
-            mac_address=request.mac_address,
-            list_type=request.list_type
-        )
-        return {"status": "success", "message": f"Device {request.device_name} added successfully to {request.list_type}!"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="An error occurred while configuring the router.")
-    
-@app.post("/unblock")
-async def unblock_connection(request: DeviceRequests):
-    print("pressed")
-    print(request)
-    try:
-        # Call the function to perform the selenium actions
-        unblock_device(
-            device_name=request.device_name,
-            mac_address=request.mac_address,
-            list_type=request.list_type,
-            order=request.order
-        )
-        return {"status": "success", "message": f"Device {request.device_name} added successfully to {request.list_type}!"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="An error occurred while configuring the router.")
-
-# Get router login session status
-@app.get("/session-status")
-async def check_session_status():
-    """Check if the current session with the router is valid."""
-    try:
-        global cookies
-        
-        # If we don't have cookies yet, try to get them
-        if not cookies or "SessionID_R3" not in cookies:
-            new_cookies = get_router_session()
-            return {
-                "status": "new_session" if new_cookies else "failed",
-                "message": "Successfully created new session" if new_cookies else "Failed to create session",
-                "has_session": bool(new_cookies)
-            }
-            
-        # Test the existing cookies with a simple API call
-        test_response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers, timeout=5)
-        
-        return {
-            "status": "valid" if test_response.status_code == 200 else "invalid",
-            "message": "Session is valid" if test_response.status_code == 200 else "Session is invalid",
-            "has_session": test_response.status_code == 200,
-            "status_code": test_response.status_code
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error checking session: {str(e)}",
-            "has_session": False
-        }
-
-if __name__ == "__main__":
-    import uvicorn
-    
-    # Initialize a session at startup
-    print("Initializing router session...")
-    init_cookies = get_router_session()
-    if init_cookies:
-        print("Successfully initialized router session")
-    else:
-        print("Failed to initialize router session, will try again when endpoints are accessed")
-    
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 def get_network_speed() -> Dict:
     """Get the current network speed information from the router."""
@@ -551,147 +419,6 @@ def count_device_types(devices: List[Dict]) -> Dict:
         counts[device_type] = counts.get(device_type, 0) + 1
     return counts
 
-def perform_selenium_actions(device_name, mac_address, list_type):
-    # Set up Chrome WebDriver
-    driver = webdriver.Chrome()
-    wait = WebDriverWait(driver, 10)
-
-    # Open the router login page
-    driver.get(f"{DEFAULT_ROUTER_URL}/html/index.html#!/login")
-
-    # Step 1: Enter password
-    password_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']")))
-    password_input.send_keys(DEFAULT_PASSWORD)
-
-    # Step 2: Click the login button
-    login_button = wait.until(EC.element_to_be_clickable((By.ID, "loginbtn")))
-    login_button.click()
-
-    # Step 3: Click "More" icon
-    want_more_icon = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div.want_more")))
-    want_more_icon.click()
-
-    # Step 4: Click "Wi-Fi Settings"
-    wifi_settings_btn = wait.until(EC.element_to_be_clickable((By.ID, "wifisettingsparent_menuId")))
-    wifi_settings_btn.click()
-
-    # Step 5: Click "Wi-Fi Access Control"
-    wifi_access_control_btn = wait.until(EC.element_to_be_clickable((By.ID, "wlanaccess_menuId")))
-    wifi_access_control_btn.click()
-
-    # Step 6: Perform actions based on list_type (blocklist, trustlist, or unblock)
-    if list_type == "block":
-        add_button = wait.until(EC.element_to_be_clickable((By.ID, "wlanaccess_btn")))
-        add_button.click()
-        device_name_input = wait.until(EC.presence_of_element_located((By.ID, "wlanaccess_host_ctrl")))
-        mac_address_input = wait.until(EC.presence_of_element_located((By.ID, "wlanaccess_adddevice_ctrl")))
-        device_name_input.send_keys(device_name)
-        mac_address_input.send_keys(mac_address)
-        ok_button = wait.until(EC.element_to_be_clickable((By.ID, "submit")))
-        ok_button.click()
-    elif list_type == "unblocked":
-        try:
-            delete_buttons = driver.find_elements(By.CSS_SELECTOR, "div.ic-del")
-            
-            if len(delete_buttons) > 0:
-                target_button = driver.find_element(By.ID, f"wlan_access_{mac_address}_id_delid")
-                target_button.click()
-                time.sleep(1)
-                
-                # Click the save button
-                save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
-                save_button.click()
-                
-                print(f"Attempted to unblock device")
-            else:
-                print("No delete buttons found")
-                
-        except Exception as e:
-            print(f"Error unblocking device: {e}")
-            raise
-    
-    # Step 10: Click the "Save" button
-    save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
-    save_button.click()
-
-    # Close the browser
-    # driver.quit()
-
-
-
-def unblock_device(device_name, mac_address, list_type, order):
-    # Set up Chrome WebDriver
-    driver = webdriver.Chrome()
-    wait = WebDriverWait(driver, 10)
-
-    # Open the router login page
-    driver.get(f"{DEFAULT_ROUTER_URL}/html/index.html#!/login")
-
-    # Step 1: Enter password
-    password_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='password']")))
-    password_input.send_keys(DEFAULT_PASSWORD)
-
-    # Step 2: Click the login button
-    login_button = wait.until(EC.element_to_be_clickable((By.ID, "loginbtn")))
-    login_button.click()
-
-    # Step 3: Click "More" icon
-    want_more_icon = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "div.want_more")))
-    want_more_icon.click()
-
-    wifi_settings_btn = wait.until(EC.element_to_be_clickable((By.ID, "wifisettingsparent_menuId")))
-    wifi_settings_btn.click()
-
-    wifi_access_control_btn = wait.until(EC.element_to_be_clickable((By.ID, "wlanaccess_menuId")))
-    wifi_access_control_btn.click()
-
-    try:
-        # Let's add a pause to make sure the page is fully loaded
-        time.sleep(3)
-        
-        # Print all IDs on the page to debug what's actually available
-        print("All elements with IDs on page:")
-        elements_with_id = driver.find_elements(By.XPATH, "//*[@id]")
-        for element in elements_with_id:
-            print(f"ID: {element.get_attribute('id')}")
-        
-        # Try finding by class instead of ID
-        delete_buttons = driver.find_elements(By.CLASS_NAME, "ic-del")
-        print(f"Found {len(delete_buttons)} elements with class 'ic-del'")
-        
-        if len(delete_buttons) > 0:
-            # Click the first delete button (or whichever one you need)
-            delete_buttons[0].click()
-            print("Clicked delete button using class name")
-            
-            # Wait a moment and click save
-            time.sleep(1)
-            save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
-            save_button.click()
-            
-            print(f"Attempted to unblock device")
-        else:
-            print("No delete buttons found with class 'ic-del'")
-            
-    except Exception as e:
-        print(f"Error unblocking device: {e}")
-        # Get page source for debugging
-        print("Page source snippet:")
-        try:
-            print(driver.page_source[:1000])  # First 1000 chars
-        except:
-            pass
-        raise
-    
-    # Step 10: Click the "Save" button
-    save_button = wait.until(EC.element_to_be_clickable((By.ID, "pwrmode_btn")))
-    save_button.click()
-
-    # Close the browser
-    # driver.quit()
-
-
-
 # Original endpoints
 @app.get("/connected-devices", response_model=List[Dict])
 async def fetch_router_data():
@@ -708,7 +435,7 @@ async def fetch_router_data_count():
 @app.get("/network-info")
 def network_info():
     try:
-        local_ip = socket.gethostbyname(socket.getfqdn())
+        local_ip = socket.gethostbyname(socket.gethostbyname(socket.gethostname()))
     except socket.gaierror:
         local_ip = "Unable to retrieve"
 
@@ -911,120 +638,49 @@ async def get_wireless_devices():
         print(f"Error fetching wireless devices: {e}")
         return {"error": str(e)}
 
-@app.get("/blocked-devices")
-async def get_blocked_devices():
-    """
-    Get a list of all devices that are currently blocked by the router's MAC filter.
-    Retrieves data from the wlanfilterenhance API.
-    """
+# Get router login session status
+@app.get("/session-status")
+async def check_session_status():
+    """Check if the current session with the router is valid."""
     try:
-        # Ensure we have a valid session
-        session_cookies = get_router_session()
+        global cookies
         
-        # Get data directly from the router's MAC filter API
-        response = requests.get(WLAN_FILTER_ENHANCE_URL, cookies=session_cookies, headers=headers)
-        
-        if response.status_code != 200:
-            return {"error": f"Failed to fetch blocked devices, Status Code: {response.status_code}"}
-        
-        filter_data = response.json()
-        
-        # If the response is a list (as shown in your example)
-        if isinstance(filter_data, list):
-            # Process data for both frequency bands
-            formatted_response = {}
-            
-            # Process each band configuration
-            for band_config in filter_data:
-                # Extract frequency band information
-                frequency_band = band_config.get("FrequencyBand")
-                if not frequency_band:
-                    continue
-                
-                # Extract blocked MAC addresses
-                blocked_devices = band_config.get("BMACAddresses", [])
-                
-                # Extract allowed MAC addresses (white-listed)
-                allowed_devices = band_config.get("WMACAddresses", [])
-                
-                # Get MAC filter policy and enabled status
-                mac_filter_enabled = band_config.get("MACAddressControlEnabled", True)
-                # 0 means allowlist (only allow listed MACs), 1 means blocklist (block listed MACs)
-                mac_filter_policy = band_config.get("MacFilterPolicy", 1)
-                
-                # Get all devices information to enhance the data
-                all_devices_response = requests.get(HOSTINFO_URL, cookies=session_cookies, headers=headers)
-                all_devices = []
-                if all_devices_response.status_code == 200:
-                    all_devices = all_devices_response.json()
-                
-                # Create a lookup dictionary for MAC address matching
-                device_lookup = {device.get("MACAddress", "").upper(): device for device in all_devices if "MACAddress" in device}
-                
-                # Enhance blocked and allowed devices with additional information
-                enhanced_blocked_devices = []
-                for device in blocked_devices:
-                    mac_address = device.get("MACAddress", "").upper()
-                    enhanced_device = {
-                        "MACAddress": device.get("MACAddress", ""),
-                        "HostName": device.get("HostName", "Unknown Device"),
-                        "AddedOn": device.get("AddedOn", time.strftime("%Y-%m-%d %H:%M:%S"))
-                    }
-                    
-                    # Add additional info if this device is in our lookup
-                    if mac_address in device_lookup:
-                        device_info = device_lookup[mac_address]
-                        enhanced_device["IPAddress"] = device_info.get("IPAddress", "Unknown")
-                        enhanced_device["Active"] = bool(device_info.get("Active", False))
-                        enhanced_device["DeviceType"] = determine_device_type(device_info)
-                        enhanced_device["Manufacturer"] = device_info.get("Manufacturer", device_info.get("ActualManu", "Unknown"))
-                        enhanced_device["RxKBytes"] = device_info.get("RxKBytes", 0)
-                        enhanced_device["TxKBytes"] = device_info.get("TxKBytes", 0)
-                    
-                    enhanced_blocked_devices.append(enhanced_device)
-                
-                # Similarly enhance allowed devices
-                enhanced_allowed_devices = []
-                for device in allowed_devices:
-                    mac_address = device.get("MACAddress", "").upper()
-                    enhanced_device = {
-                        "MACAddress": device.get("MACAddress", ""),
-                        "HostName": device.get("HostName", "Unknown Device"),
-                        "AddedOn": device.get("AddedOn", time.strftime("%Y-%m-%d %H:%M:%S"))
-                    }
-                    
-                    # Add additional info if this device is in our lookup
-                    if mac_address in device_lookup:
-                        device_info = device_lookup[mac_address]
-                        enhanced_device["IPAddress"] = device_info.get("IPAddress", "Unknown")
-                        enhanced_device["Active"] = bool(device_info.get("Active", False))
-                        enhanced_device["DeviceType"] = determine_device_type(device_info)
-                        enhanced_device["Manufacturer"] = device_info.get("Manufacturer", device_info.get("ActualManu", "Unknown"))
-                        enhanced_device["RxKBytes"] = device_info.get("RxKBytes", 0)
-                        enhanced_device["TxKBytes"] = device_info.get("TxKBytes", 0)
-                    
-                    enhanced_allowed_devices.append(enhanced_device)
-                
-                # Add to the formatted response
-                formatted_response[frequency_band] = {
-                    "enabled": mac_filter_enabled,
-                    "policy": mac_filter_policy,
-                    "blocked_devices": enhanced_blocked_devices,
-                    "allowed_devices": enhanced_allowed_devices
-                }
-            
-            # Calculate total blocked devices
-            total_blocked = sum(len(band["blocked_devices"]) for band in formatted_response.values())
-            formatted_response["total_blocked_devices"] = total_blocked
-            
-            return formatted_response
-        else:
-            # Handle unexpected response format
+        # If we don't have cookies yet, try to get them
+        if not cookies or "SessionID_R3" not in cookies:
+            new_cookies = get_router_session()
             return {
-                "error": "Unexpected response format",
-                "data": filter_data
+                "status": "new_session" if new_cookies else "failed",
+                "message": "Successfully created new session" if new_cookies else "Failed to create session",
+                "has_session": bool(new_cookies)
             }
+            
+        # Test the existing cookies with a simple API call
+        test_response = requests.get(HOSTINFO_URL, cookies=cookies, headers=headers, timeout=5)
         
+        return {
+            "status": "valid" if test_response.status_code == 200 else "invalid",
+            "message": "Session is valid" if test_response.status_code == 200 else "Session is invalid",
+            "has_session": test_response.status_code == 200,
+            "status_code": test_response.status_code
+        }
     except Exception as e:
-        print(f"Error fetching blocked devices: {e}")
-        return {"error": str(e)}
+        return {
+            "status": "error",
+            "message": f"Error checking session: {str(e)}",
+            "has_session": False
+        }
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Initialize a session at startup
+    print("Initializing router session...")
+    init_cookies = get_router_session()
+    if init_cookies:
+        print("Successfully initialized router session")
+    else:
+        print("Failed to initialize router session, will try again when endpoints are accessed")
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+fetch_router_data()

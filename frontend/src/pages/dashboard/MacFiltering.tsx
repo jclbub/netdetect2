@@ -29,7 +29,7 @@ const WirelessDevices = () => {
   const fetchBlockedDevices = async () => {
     try {
       setIsLoading(true);
-      const response = await axios.get('http://localhost:8000/blocked-devices');
+      const response = await axios.get('http://localhost:8001/blocked-devices');
       if (response.status === 200) {
         // Process blocked devices data
         const processedBlockedDevices = processBlockedDevices(response.data);
@@ -347,7 +347,7 @@ const WirelessDevices = () => {
     console.log(device.id)
     setBlockingDevice(device.id);
     try {
-      const res = await axios.post('http://127.0.0.1:8000/macfilter', {
+      const res = await axios.post('http://127.0.0.1:8001/macfilter', {
         device_name: device?.hostname,
         mac_address: device?.mac_address,
         list_type: "block"
@@ -390,7 +390,7 @@ const WirelessDevices = () => {
     console.log(device.id)
     setBlockingDevice(device.id);
     try {
-      const res = await axios.post('http://127.0.0.1:8000/unblock', {
+      const res = await axios.post('http://127.0.0.1:8001/unblock', {
         device_name: device?.hostname,
         mac_address: device?.mac_address,
         list_type: "unblocked",

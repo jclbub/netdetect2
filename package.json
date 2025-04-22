@@ -7,7 +7,7 @@
     "frontend": "cd frontend && npm run dev",
     "backend": "cd backend && python app.py",
     "devices": "cd backend && python connected_device.py",
-    "start": "concurrently \"npm run frontend\" \"npm run backend\" \"npm run devices\""
+    "start": "concurrently \"npm run frontend\" \"python -m uvicorn backends.yeah:app --reload\" \"python -m uvicorn backends.getDataFromDB:app --port 8005 --reload\" \"python backends/AI.py\" \"python -m uvicorn backends.macFilter:app --port 8001 --reload\""
   },
   "keywords": [],
   "author": "",
