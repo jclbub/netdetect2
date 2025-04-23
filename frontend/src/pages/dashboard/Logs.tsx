@@ -46,7 +46,7 @@ const Logs = () => {
   const fetchBandwidthData = async (networkId) => {
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:8005/api/networks/${networkId}/bandwidth?limit=100`);
+      const response = await axios.get(`http://localhost:8005/api/networks/${networkId}/bandwidth`);
       setBandwidthData(response.data);
       setLoading(false);
     } catch (err) {

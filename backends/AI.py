@@ -310,6 +310,62 @@ class DeviceManager:
         
         return df.to_dict('records')
     
+
+    def update_block_status(self):
+        """Update network devices' status to 'blocked' if they appear in enabled time control rules"""
+        try:
+            # Fetch time control rules from the API
+            import requests
+            import json
+            from datetime import datetime
+
+            time_control_api = "http://127.0.0.1:8000/time-control-data"
+
+            print(time_control_api)
+            
+            try:
+                response = requests.get(time_control_api, timeout=3)
+                if response.status_code != 200:
+                    logging.warning(f"Failed to fetch time control data: Status code {response.status_code}")
+                    return False
+                    
+                time_rules = response.json()
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Error fetching time control rules: {e}")
+                return False
+            
+            # Process the time rules
+            blocked_mac_addresses = []
+            for rule in time_rules:
+                # Skip disabled rules
+                if not rule.get('Enable', False):
+                    continue
+                    
+                # Extract device MAC addresses from the rule
+                devices = rule.get('Devices', [])
+                for device in devices:
+                    mac_address = device.get('MACAddress', '')
+                    if mac_address:
+                        blocked_mac_addresses.append(mac_address)
+            
+            # Update database for blocked devices
+            if blocked_mac_addresses:
+                placeholders = ', '.join(['%s'] * len(blocked_mac_addresses))
+                query = f"""
+                UPDATE networks 
+                SET status = 'blocked' 
+                WHERE mac_address IN ({placeholders})
+                """
+                self.db.execute_and_commit(query, tuple(blocked_mac_addresses))
+                
+                # Log the blocked devices
+                logging.info(f"Updated {len(blocked_mac_addresses)} devices to 'blocked' status based on time control rules")
+                
+            return True
+        except Exception as e:
+            logging.error(f"Error updating device block status: {e}")
+            return False
+    
     def add_notification(self, device_id, notification_type, severity, remarks=None, probable_cause=None):
         # Use existing notification table structure while adding cause info to remarks
         cause_info = ""
@@ -896,6 +952,8 @@ class AINetworkMonitor:
         
         # Alert levels
         self.alert_levels = config['monitor']['alert_levels']
+
+    
     
     def update_device_history(self, device_id, device_info, upload, download, timestamp=None):
         """Update device data history for ML analysis"""
@@ -950,6 +1008,7 @@ class AINetworkMonitor:
             data_point['download_rolling_std'] = 0
         
         return data_point
+        
     
     def check_notification_cooldown(self, device_id, anomaly_type):
         """Check if notification is in cooldown period"""
@@ -1049,7 +1108,19 @@ class AINetworkMonitor:
                 logging.info(f"Successfully processed data for {successful_updates} devices")
             if notification_sent > 0:
                 logging.info(f"Sent {notification_sent} anomaly notifications with cause analysis")
-            
+
+            self.db_manager.commit()
+
+            if successful_updates > 0:
+                logging.info(f"Successfully processed data for {successful_updates} devices")
+            if notification_sent > 0:
+                logging.info(f"Sent {notification_sent} anomaly notifications with cause analysis")           
+
+            try:
+                self.device_manager.update_block_status()
+            except Exception as e:
+                logging.error(f"Error checking time control rules: {e}") 
+                
             return True
             
         except Exception as e:

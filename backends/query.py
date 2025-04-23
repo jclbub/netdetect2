@@ -5,7 +5,6 @@ import socket
 import time
 import mysql.connector
 
-import mysql.connector
 
 def get_connection():
     """Establish a connection to the MySQL database."""

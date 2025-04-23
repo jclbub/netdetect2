@@ -33,6 +33,7 @@ DEFAULT_PASSWORD = "pass@AX3"
 # API URLs
 HOSTINFO_URL = f"{DEFAULT_ROUTER_URL}/api/system/HostInfo"
 WAN_STATUS_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/wan"
+BLOCKED_DATA_URL = f"{DEFAULT_ROUTER_URL}/api/ntwk/timecontrol"
 
 # Global cookies variable to store session
 cookies = {}
@@ -223,6 +224,20 @@ def get_filtered_router_data() -> Union[List[Dict[str, any]], Dict[str, any]]:
     except Exception as e:
         print(f"Error occurred while fetching router data: {e}")
         return {"error": str(e)}
+    
+def get_timecontrol() -> Dict:
+    try:
+        
+        session_cookies = get_router_session()
+        response = requests.get(BLOCKED_DATA_URL, cookies=session_cookies, headers=headers)
+
+        if response.status_code == 200:
+            data = response.json()
+
+            return data
+
+    except Exception as e:
+        return None
 
 def get_network_speed() -> Dict:
     """Get the current network speed information from the router."""
@@ -478,6 +493,22 @@ async def debug_wan_data():
             return {"error": "Failed to fetch WAN data", "status_code": response.status_code}
     except Exception as e:
         return {"error": str(e)}
+    
+@app.get("/time-control-data")
+def get_time_control_data():
+
+    try:
+
+        session_cookies = get_router_session()
+
+        response = requests.get(BLOCKED_DATA_URL, cookies=session_cookies, headers=headers)
+
+        if response.status_code == 200:
+            data = response.json()
+            return data
+
+    except Exception as e:
+        return None
 
 @app.get("/total-bandwidth-usage")
 def get_total_bandwidth_usage():
@@ -637,6 +668,7 @@ async def get_wireless_devices():
     except Exception as e:
         print(f"Error fetching wireless devices: {e}")
         return {"error": str(e)}
+    
 
 # Get router login session status
 @app.get("/session-status")
@@ -682,5 +714,4 @@ if __name__ == "__main__":
         print("Failed to initialize router session, will try again when endpoints are accessed")
     
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-fetch_router_data()
+get_router_session()

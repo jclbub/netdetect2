@@ -257,8 +257,8 @@ def get_network_bandwidth(network_id: int, response: Response, limit: int = 100)
         # Get bandwidth data with limit for better performance
         start_time = time.time()
         cursor.execute(
-            "SELECT upload, download, created_at FROM bandwidth WHERE device_id = %s ORDER BY created_at DESC LIMIT %s",
-            (network_id, limit)
+            "SELECT upload, download, created_at FROM bandwidth WHERE device_id = %s ORDER BY created_at DESC",
+            (network_id,)  # Fixed: Added comma to make it a proper tuple
         )
         bandwidth_data = cursor.fetchall()
         
