@@ -100,10 +100,20 @@ class Network(BaseModel):
     updated_at: datetime
     total_upload: float = 0
     total_download: float = 0
+    violation_count: int = 0  # Add default value for violation_count
 
 class NetworkResponse(BaseModel):
     networks: List[Network]
     total_count: int
+
+class Notification(BaseModel):
+    noti_id: int
+    device_id: int
+    types: str
+    remarks: str
+    created_at: datetime
+    hostname: Optional[str] = None
+    ip_address: Optional[str] = None
 
 # Function to get connection from pool
 def get_connection():
@@ -113,6 +123,18 @@ def get_connection():
     except Error as e:
         print(f"Error getting connection from pool: {e}")
         raise HTTPException(status_code=500, detail=f"Database connection error: {str(e)}")
+
+# Function to handle IP address duplicates
+def handle_ip_conflict(ip_address: str, connection):
+    """
+    Handle duplicate IP address conflicts by checking if the IP already exists
+    and updating the existing record instead of inserting a new one.
+    """
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute("SELECT id FROM networks WHERE ip_address = %s", (ip_address,))
+    result = cursor.fetchone()
+    cursor.close()
+    return result["id"] if result else None
 
 # Get all networks with bandwidth totals
 @app.get("/api/networks", response_model=NetworkResponse)
@@ -136,6 +158,7 @@ def get_networks(response: Response):
         SELECT n.id, n.ip_address, n.mac_address, n.hostname, 
                n.manufacturer, n.device_type, n.status, 
                n.created_at, n.updated_at, 
+               COALESCE(n.violation_count, 0) as violation_count,
                COALESCE(b.total_upload, 0) as total_upload, 
                COALESCE(b.total_download, 0) as total_download
         FROM networks n
@@ -196,6 +219,7 @@ def get_network(network_id: int, response: Response):
         SELECT n.id, n.ip_address, n.mac_address, n.hostname, 
                n.manufacturer, n.device_type, n.status, 
                n.created_at, n.updated_at, 
+               COALESCE(n.violation_count, 0) as violation_count,
                COALESCE(b.total_upload, 0) as total_upload, 
                COALESCE(b.total_download, 0) as total_download
         FROM networks n
@@ -257,8 +281,8 @@ def get_network_bandwidth(network_id: int, response: Response, limit: int = 100)
         # Get bandwidth data with limit for better performance
         start_time = time.time()
         cursor.execute(
-            "SELECT upload, download, created_at FROM bandwidth WHERE device_id = %s ORDER BY created_at DESC",
-            (network_id,)  # Fixed: Added comma to make it a proper tuple
+            "SELECT upload, download, created_at FROM bandwidth WHERE device_id = %s ORDER BY created_at DESC LIMIT %s",
+            (network_id, limit)
         )
         bandwidth_data = cursor.fetchall()
         
@@ -299,6 +323,7 @@ def get_bandwidth_summary(response: Response):
             n.id,
             n.hostname,
             n.ip_address,
+            COALESCE(n.violation_count, 0) as violation_count,
             COALESCE(SUM(b.upload), 0) as total_upload,
             COALESCE(SUM(b.download), 0) as total_download,
             COALESCE(SUM(b.upload), 0) + COALESCE(SUM(b.download), 0) as total_bandwidth
@@ -361,6 +386,7 @@ def search_networks(search_term: str, response: Response):
         start_time = time.time()
         query = """
         SELECT n.*, 
+               COALESCE(n.violation_count, 0) as violation_count,
                COALESCE(b.total_upload, 0) as total_upload, 
                COALESCE(b.total_download, 0) as total_download
         FROM networks n
@@ -403,6 +429,64 @@ def search_networks(search_term: str, response: Response):
         response.headers["X-Execution-Time"] = f"{execution_time:.4f}s"
         
         return result
+    except Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+# Helper function for upsert operation (handles duplicate IP addresses)
+@app.post("/api/networks", response_model=Network)
+def create_network(network: Network):
+    """
+    Create a new network device with duplicate IP handling
+    """
+    try:
+        connection = get_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        # Check if IP already exists
+        existing_id = handle_ip_conflict(network.ip_address, connection)
+        
+        if existing_id:
+            # Update existing record
+            update_query = """
+            UPDATE networks 
+            SET mac_address = %s, hostname = %s, manufacturer = %s,
+                device_type = %s, status = %s, updated_at = NOW()
+            WHERE id = %s
+            """
+            cursor.execute(
+                update_query, 
+                (network.mac_address, network.hostname, network.manufacturer,
+                 network.device_type, network.status, existing_id)
+            )
+            network_id = existing_id
+        else:
+            # Insert new record with default violation_count
+            insert_query = """
+            INSERT INTO networks 
+            (ip_address, mac_address, hostname, manufacturer, device_type, status, violation_count, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            """
+            cursor.execute(
+                insert_query, 
+                (network.ip_address, network.mac_address, network.hostname, 
+                 network.manufacturer, network.device_type, network.status, 
+                 network.violation_count or 0)  # Use provided violation_count or default to 0
+            )
+            network_id = cursor.lastrowid
+        
+        connection.commit()
+        
+        # Fetch the created/updated network
+        cursor.execute(
+            "SELECT * FROM networks WHERE id = %s", 
+            (network_id,)
+        )
+        created_network = cursor.fetchone()
+        
+        cursor.close()
+        connection.close()
+        
+        return created_network
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
@@ -598,6 +682,92 @@ def get_notifications_by_type(notification_type: str, response: Response, limit:
     except Error as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+# Add an endpoint to create notifications with proper violation_count handling
+@app.post("/api/notifications", response_model=Dict[str, Any])
+def create_notification(notification: Notification):
+    """
+    Create a new notification with proper error handling
+    """
+    try:
+        connection = get_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        # First check if device exists
+        cursor.execute("SELECT 1 FROM networks WHERE id = %s LIMIT 1", (notification.device_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            connection.close()
+            raise HTTPException(status_code=404, detail=f"Device with ID {notification.device_id} not found")
+        
+        # Insert notification with explicit fields
+        insert_query = """
+        INSERT INTO notification 
+        (device_id, types, remarks, created_at)
+        VALUES (%s, %s, %s, NOW())
+        """
+        cursor.execute(
+            insert_query, 
+            (notification.device_id, notification.types, notification.remarks)
+        )
+        
+        # Update violation count for the device
+        cursor.execute(
+            "UPDATE networks SET violation_count = COALESCE(violation_count, 0) + 1 WHERE id = %s",
+            (notification.device_id,)
+        )
+        
+        connection.commit()
+        
+        # Get the created notification
+        cursor.execute(
+            "SELECT * FROM notification WHERE noti_id = %s", 
+            (cursor.lastrowid,)
+        )
+        created_notification = cursor.fetchone()
+        
+        cursor.close()
+        connection.close()
+        
+        return created_notification
+    except Error as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+# Ensure the database schema has the correct structure
+@app.post("/api/admin/check-schema")
+def check_database_schema():
+    """
+    Check if the database schema has the required fields and defaults.
+    This endpoint can be used to verify and fix schema issues.
+    """
+    try:
+        connection = get_connection()
+        cursor = connection.cursor(dictionary=True)
+        
+        # Check if violation_count column exists in networks table
+        cursor.execute("SHOW COLUMNS FROM networks LIKE 'violation_count'")
+        violation_count_exists = cursor.fetchone()
+        
+        if not violation_count_exists:
+            # Add violation_count column if it doesn't exist
+            cursor.execute("ALTER TABLE networks ADD COLUMN violation_count INT NOT NULL DEFAULT 0")
+            connection.commit()
+            schema_changes = ["Added violation_count column to networks table"]
+        else:
+            # Ensure violation_count has a default value
+            cursor.execute("ALTER TABLE networks MODIFY COLUMN violation_count INT NOT NULL DEFAULT 0")
+            connection.commit()
+            schema_changes = ["Updated violation_count column to have DEFAULT 0"]
+        
+        cursor.close()
+        connection.close()
+        
+        return {
+            "status": "success", 
+            "message": "Database schema checked and updated if needed",
+            "changes": schema_changes
+        }
+    except Error as e:
+        raise HTTPException(status_code=500, detail=f"Database schema check error: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

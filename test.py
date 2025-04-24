@@ -1,79 +1,205 @@
 import requests
-import time
 import json
+import time
 from datetime import datetime
 
-# API base URL
-BASE_URL = "http://localhost:8005/api"
-
-def get_all_devices():
-    """Get all network devices from the API"""
+def get_high_priority_hostnames(api_url):
+    """
+    Fetches notifications from the API and returns hostnames with [HIGH] in remarks.
+    
+    Args:
+        api_url (str): The URL of the notifications API endpoint
+        
+    Returns:
+        list: List of hostnames that have [HIGH] in their remarks
+    """
     try:
-        response = requests.get(f"{BASE_URL}/networks")
-        response.raise_for_status()
-        return response.json().get("networks", [])
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching devices: {e}")
+        # Make API request
+        response = requests.get(api_url)
+        
+        # Check if request was successful
+        if response.status_code == 200:
+            # Parse JSON response
+            notifications = json.loads(response.text)
+            
+            # Filter hostnames where remarks contain [HIGH]
+            high_priority_hostnames = []
+            
+            for notification in notifications:
+                if "[HIGH]" in notification.get("remarks", ""):
+                    hostname = notification.get("hostname")
+                    if hostname:
+                        high_priority_hostnames.append(hostname)
+            
+            return high_priority_hostnames
+        else:
+            print(f"Error: API request failed with status code {response.status_code}")
+            return []
+    
+    except Exception as e:
+        print(f"Error: {str(e)}")
         return []
 
-def get_device_bandwidth(device_id):
-    """Get the latest bandwidth usage for a specific device"""
-    try:
-        response = requests.get(f"{BASE_URL}/networks/{device_id}/bandwidth")
-        response.raise_for_status()
-        # Get the first (most recent) bandwidth entry
-        bandwidth_data = response.json()
-        if bandwidth_data and isinstance(bandwidth_data, list) and len(bandwidth_data) > 0:
-            return bandwidth_data[0]
-        return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching bandwidth for device {device_id}: {e}")
-        return None
-
-def bytes_to_kb(bytes_value):
-    """Convert bytes to kilobytes"""
-    return bytes_value / 1024
-
-def monitor_bandwidth(threshold_kb=5):
-    """Monitor bandwidth usage of all devices and alert when threshold is exceeded"""
-    print(f"Starting bandwidth monitoring. Threshold: {threshold_kb}KB")
-    print("-" * 70)
+def control_device_time(time_control_api, device_name="ICTD-PC", enable=True):
+    """
+    Controls a device's time settings via the time control API.
     
-    while True:
-        devices = get_all_devices()
+    Args:
+        time_control_api (str): The URL of the time control API endpoint
+        device_name (str): The name of the device to control (default: ICTD-PC)
+        enable (bool): Whether to enable (True) or disable (False) the device
         
-        # Current timestamp for reporting
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(f"\nChecking bandwidth at {current_time}")
-        
-        for device in devices:
-            device_id = device.get("id")
-            hostname = device.get("hostname", "Unknown")
-            ip_address = device.get("ip_address", "Unknown")
-            
-            bandwidth = get_device_bandwidth(device_id)
-            if bandwidth:
-                upload_bytes = bandwidth.get("upload", 0)
-                download_bytes = bandwidth.get("download", 0)
-                
-                # Convert bytes to KB for comparison and display
-                upload_kb = bytes_to_kb(upload_bytes)
-                download_kb = bytes_to_kb(download_bytes)
-                
-                # Check if either upload or download exceeds threshold in KB
-                if upload_kb >= threshold_kb or download_kb >= threshold_kb:
-                    print(f"ALERT! Device {hostname} ({ip_address}) exceeded threshold:")
-                    print(f"  - Upload: {upload_bytes} bytes ({upload_kb:.2f}KB), Download: {download_bytes} bytes ({download_kb:.2f}KB)")
-                else:
-                    print(f"Device {hostname} ({ip_address}): Upload {upload_bytes} bytes ({upload_kb:.2f}KB), Download {download_bytes} bytes ({download_kb:.2f}KB)")
-        
-        # Wait for 1 second before checking again
-        time.sleep(1)
-
-if __name__ == "__main__":
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    print(f"Controlling device: {device_name}, enable: {enable}")
     try:
-        monitor_bandwidth(threshold_kb=5)
+        # Prepare payload
+        payload = {
+            "device_name": device_name,
+            "enable": enable
+        }
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # Make API request with proper URL formatting
+        if not time_control_api.startswith("http://"):
+            time_control_api = f"http://{time_control_api}"
+        
+        print(f"Sending request to: {time_control_api}")
+        print(f"Payload: {json.dumps(payload)}")
+        
+        # Make API request
+        response = requests.post(time_control_api, json=payload, headers=headers)
+        
+        # Check if request was successful
+        if response.status_code == 200:
+            print(f"Successfully {'enabled' if enable else 'disabled'} time control for device: {device_name}")
+            print(f"Response: {response.text}")
+            return True
+        else:
+            print(f"Error: Time control API request failed with status code {response.status_code}")
+            print(f"Response: {response.text}")
+            return False
+    
+    except Exception as e:
+        print(f"Error controlling device time: {str(e)}")
+        return False
+
+def get_high_bandwidth_devices(api_url):
+    """
+    Fetches device information and identifies those with high bandwidth usage.
+    
+    Args:
+        api_url (str): The URL of the device information API endpoint
+        
+    Returns:
+        list: List of device names with high bandwidth usage
+    """
+    try:
+        # Make API request to get device bandwidth information
+        response = requests.get(api_url)
+        
+        if response.status_code == 200:
+            devices = json.loads(response.text)
+            
+            # Filter devices with high bandwidth
+            high_bandwidth_devices = []
+            
+            for device in devices:
+                # Check if bandwidth exceeds threshold
+                bandwidth = device.get("bandwidth", 0)
+                threshold = device.get("bandwidth_threshold", 100)
+                
+                if bandwidth > threshold:
+                    device_name = device.get("name")
+                    if device_name:
+                        high_bandwidth_devices.append(device_name)
+                        print(f"Device {device_name} has high bandwidth: {bandwidth} > {threshold}")
+            
+            return high_bandwidth_devices
+        else:
+            print(f"Error: Device API request failed with status code {response.status_code}")
+            return []
+            
+    except Exception as e:
+        print(f"Error getting high bandwidth devices: {str(e)}")
+        return []
+
+def main():
+    # API endpoints
+    notification_api_url = "http://localhost:8005/api/notifications"
+    time_control_api_url = "127.0.0.1:8001/time-control"  # Fixed to match provided example
+    device_api_url = "http://localhost:8005/api/devices"
+    
+    # Set interval (in seconds)
+    interval = 120  # 2 minutes
+    
+    print(f"Starting continuous monitoring for high priority hostnames and bandwidth control...")
+    print(f"Checking every {interval} seconds (2 minutes)")
+    print("-" * 50)
+    
+    # Track devices that have already been controlled to avoid duplicates
+    controlled_devices = {}
+    
+    try:
+        # Run continuously
+        while True:
+            # Get current timestamp
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            print(f"\n[{current_time}] Starting check...")
+            
+            # 1. Get hostnames with [HIGH] remarks
+            high_priority_hostnames = get_high_priority_hostnames(notification_api_url)
+            
+            # Print hostname results
+            print(f"[{current_time}] Priority check completed:")
+            if high_priority_hostnames:
+                print("Hostnames with [HIGH] priority remarks:")
+                for hostname in high_priority_hostnames:
+                    print(f"- {hostname}")
+                    
+                    # Control high priority hostnames
+                    success = control_device_time(time_control_api_url, hostname, enable=True)
+                    if success:
+                        controlled_devices[hostname] = True
+            else:
+                print("No hostnames with [HIGH] priority remarks found.")
+            
+            # 2. Get devices with high bandwidth usage
+            high_bandwidth_devices = get_high_bandwidth_devices(device_api_url)
+            
+            # Print bandwidth results and control devices
+            print(f"[{current_time}] Bandwidth check completed:")
+            if high_bandwidth_devices:
+                print("Devices with high bandwidth usage:")
+                for device_name in high_bandwidth_devices:
+                    print(f"- {device_name}")
+                    
+                    # Apply time control to high bandwidth devices
+                    if device_name not in controlled_devices or controlled_devices[device_name] == False:
+                        success = control_device_time(time_control_api_url, device_name, enable=True)
+                        if success:
+                            controlled_devices[device_name] = True
+            else:
+                print("No devices with high bandwidth usage found.")
+                
+            # Always control ICTD-PC regardless of other conditions
+            success = control_device_time(time_control_api_url, "ICTD-PC", enable=True)
+            if success:
+                controlled_devices["ICTD-PC"] = True
+            
+            # Wait for the specified interval
+            print(f"Next check in {interval} seconds...")
+            time.sleep(interval)
+            
     except KeyboardInterrupt:
         print("\nMonitoring stopped by user.")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"\nError in monitoring loop: {str(e)}")
+
+if __name__ == "__main__":
+    main()

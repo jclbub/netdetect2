@@ -701,6 +701,8 @@ async def check_session_status():
             "message": f"Error checking session: {str(e)}",
             "has_session": False
         }
+    
+get_router_session()
 
 if __name__ == "__main__":
     import uvicorn
@@ -714,4 +716,3 @@ if __name__ == "__main__":
         print("Failed to initialize router session, will try again when endpoints are accessed")
     
     uvicorn.run(app, host="0.0.0.0", port=8000)
-get_router_session()

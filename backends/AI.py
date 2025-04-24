@@ -79,6 +79,34 @@ CONFIG = {
     }
 }
 
+def format_bandwidth(value):
+    if value >= 1024 * 1024:  # >= 1MB
+        return f"{value / (1024 * 1024):.2f} MB/s"
+    elif value >= 1024:  # >= 1KB
+        return f"{value / 1024:.2f} KB/s"
+    else:   
+        return f"{value:.2f} B/s"
+                    
+def determine_severity(upload, download):
+    # Get the higher of upload or download for evaluation
+    max_bandwidth = max(upload, download)
+    
+    # Very high bandwidth (>= 50KB/s)
+    if max_bandwidth >= 51200:  # 50KB
+        return 'critical', "Critical bandwidth usage"
+    # High bandwidth (15KB - 50KB)
+    elif max_bandwidth >= 10240:  # 15KB
+        return 'high', "High bandwidth usage"
+    # Medium bandwidth (5KB - 15KB)
+    elif max_bandwidth >= 5120:  # 5KB
+        return 'medium', "Medium bandwidth usage"
+    # Low-Medium bandwidth (1KB - 5KB)
+    elif max_bandwidth >= 1024:  # 1KB
+        return 'low-medium', "Low-medium bandwidth usage"
+    # Low bandwidth (< 1KB)
+    else:
+        return 'low', "Low bandwidth usage"
+
 class DatabaseManager:
     """Handle all database operations"""
     
@@ -367,40 +395,68 @@ class DeviceManager:
             return False
     
     def add_notification(self, device_id, notification_type, severity, remarks=None, probable_cause=None):
+        """Add notification to database with improved error handling and forced insertion"""
         # Use existing notification table structure while adding cause info to remarks
         cause_info = ""
         if probable_cause:
             cause_info = f" Probable cause: {probable_cause}"
         
-        full_remarks = f"{remarks}{cause_info}"
+        full_remarks = f"{remarks}{cause_info}" if remarks else cause_info
         
-        # Limit remarks to fit in the varchar(100) field if necessary
+        # Limit remarks to fit in the varchar field if necessary
         if len(full_remarks) > 255:
             full_remarks = full_remarks[:253] + "..."
         
-        # Insert into database
-        query = """
-        INSERT INTO notification (device_id, types, remarks) 
-        VALUES (%s, %s, %s)
-        """
+        # Convert severity to numeric if it's a string
+        severity_level = severity
+        if isinstance(severity, str):
+            if severity.lower() == 'high':
+                severity_level = 3
+            elif severity.lower() == 'medium':
+                severity_level = 2
+            elif severity.lower() == 'low':
+                severity_level = 1
+            else:
+                severity_level = 1
         
-        # Prepend severity to remarks for databases without severity field
+        # Prepend severity to remarks
         severity_text = ""
-        if severity == 3:
+        if severity_level == 3:
             severity_text = "[HIGH] "
-        elif severity == 2:
+        elif severity_level == 2:
             severity_text = "[MEDIUM] "
-        elif severity == 1:
+        elif severity_level == 1:
             severity_text = "[LOW] "
             
         complete_remarks = f"{severity_text}{full_remarks}"
         
-        result = self.db.execute_and_commit(query, (device_id, notification_type, complete_remarks))
+        # Insert into database with retry logic
+        max_attempts = 3
+        attempt = 0
+        success = False
         
-        if result:
-            logging.info(f"NOTIFICATION SAVED: {notification_type} (severity: {severity}) for device {device_id}: {complete_remarks}")
+        while attempt < max_attempts and not success:
+            try:
+                query = """
+                INSERT INTO notification (device_id, types, remarks) 
+                VALUES (%s, %s, %s)
+                """
+                
+                result = self.db.execute_and_commit(query, (device_id, notification_type, complete_remarks))
+                
+                if result:
+                    logging.info(f"NOTIFICATION SAVED: {notification_type} (severity: {severity_level}) for device {device_id}: {complete_remarks}")
+                    success = True
+                else:
+                    # If the first attempt fails, try again
+                    attempt += 1
+                    time.sleep(0.2)  # Brief delay before retry
+            except Exception as e:
+                logging.error(f"Error saving notification (attempt {attempt+1}): {e}")
+                attempt += 1
+                time.sleep(0.2)  # Brief delay before retry
         
-        return result is not False
+        return success
 
 
 class APIManager:
@@ -773,6 +829,8 @@ class MLManager:
             }
         }
     
+ 
+    
     def classify_anomaly(self, data_point, anomaly_score, rf_model=None):
         """Classify the type of anomaly based on features and determine probable cause"""
         # Get feature values
@@ -782,13 +840,8 @@ class MLManager:
         download_change = data_point.get('download_change', 0)
         
         # Format values for display with appropriate units
-        def format_bandwidth(value):
-            if value >= 1024 * 1024:
-                return f"{value / (1024 * 1024):.2f} MB/s"
-            elif value >= 1024:
-                return f"{value / 1024:.2f} KB/s"
-            else:
-                return f"{value:.2f} B/s"
+        upload_formatted = format_bandwidth(upload)
+        download_formatted = format_bandwidth(download)
         
         # Determine anomaly severity based on score
         if anomaly_score < -0.8:
@@ -812,7 +865,7 @@ class MLManager:
             if upload > 1000:
                 anomaly_info = {
                     'type': 'high_upload_anomaly',
-                    'description': f"Unusual high upload traffic detected ({format_bandwidth(upload)})",
+                    'description': f"Unusual high upload traffic detected ({upload_formatted})",
                     'severity': severity,
                     'probable_cause': top_cause['description'] if top_cause else "Unknown",
                     'cause_probability': top_cause['probability_pct'] if top_cause else "N/A"
@@ -820,7 +873,7 @@ class MLManager:
             else:
                 anomaly_info = {
                     'type': 'upload_anomaly',
-                    'description': f"Unusual upload pattern detected ({format_bandwidth(upload)})",
+                    'description': f"Unusual upload pattern detected ({upload_formatted})",
                     'severity': severity,
                     'probable_cause': top_cause['description'] if top_cause else "Unknown",
                     'cause_probability': top_cause['probability_pct'] if top_cause else "N/A"
@@ -829,7 +882,7 @@ class MLManager:
             if download > 2000:
                 anomaly_info = {
                     'type': 'high_download_anomaly',
-                    'description': f"Unusual high download traffic detected ({format_bandwidth(download)})",
+                    'description': f"Unusual high download traffic detected ({download_formatted})",
                     'severity': severity,
                     'probable_cause': top_cause['description'] if top_cause else "Unknown",
                     'cause_probability': top_cause['probability_pct'] if top_cause else "N/A"
@@ -837,7 +890,7 @@ class MLManager:
             else:
                 anomaly_info = {
                     'type': 'download_anomaly',
-                    'description': f"Unusual download pattern detected ({format_bandwidth(download)})",
+                    'description': f"Unusual download pattern detected ({download_formatted})",
                     'severity': severity,
                     'probable_cause': top_cause['description'] if top_cause else "Unknown",
                     'cause_probability': top_cause['probability_pct'] if top_cause else "N/A"
@@ -845,7 +898,7 @@ class MLManager:
         elif upload > 50 and download > 50:
             anomaly_info = {
                 'type': 'bidirectional_anomaly',
-                'description': f"Unusual bidirectional traffic pattern (Up: {format_bandwidth(upload)}, Down: {format_bandwidth(download)})",
+                'description': f"Unusual bidirectional traffic pattern (Up: {upload_formatted}, Down: {download_formatted})",
                 'severity': severity,
                 'probable_cause': top_cause['description'] if top_cause else "Unknown",
                 'cause_probability': top_cause['probability_pct'] if top_cause else "N/A"
@@ -872,15 +925,6 @@ class MLManager:
         upload_change = data_point.get('upload_change', 0)
         download_change = data_point.get('download_change', 0)
         
-        # Format values for display with appropriate units
-        def format_bandwidth(value):
-            if value >= 1024 * 1024:
-                return f"{value / (1024 * 1024):.2f} MB/s"
-            elif value >= 1024:
-                return f"{value / 1024:.2f} KB/s"
-            else:
-                return f"{value:.2f} B/s"
-        
         # Get device history if available
         device_history = None
         if hasattr(self, 'device_history_cache') and data_point.get('device_id') in self.device_history_cache:
@@ -893,33 +937,54 @@ class MLManager:
         is_anomaly = False
         anomaly_info = None
         
-        # Check for significant spikes
-        if upload_change > 200 and upload > 500:
+        # Format bandwidth values for display
+        upload_formatted = format_bandwidth(upload)
+        download_formatted = format_bandwidth(download)
+        
+        # IMPROVED DETECTION: Lower thresholds for spike detection
+        # Check for significant spikes - more sensitive detection (5kb = 5120 bytes)
+        if upload_change > 50 and upload > 5:  # Detect even small spikes now
             is_anomaly = True
+            severity = 'low'
+            
+            # Adjust severity based on the magnitude of the spike
+            if upload > 5120:  # More than 5KB/s
+                severity = 'high'
+            elif upload > 1024:  # More than 1KB/s
+                severity = 'medium'
+                
             anomaly_info = {
                 'type': "upload_spike",
-                'description': f"Sudden upload spike detected ({format_bandwidth(upload)})",
-                'severity': 'medium',
+                'description': f"Sudden upload spike detected ({upload_formatted})",
+                'severity': severity,
                 'probable_cause': top_cause['description'] if top_cause else "Unknown",
                 'cause_probability': top_cause['probability_pct'] if top_cause else "N/A",
                 'detailed_causes': cause_analysis['probable_causes']
             }
-        elif download_change > 500 and download > 1000:
+        elif download_change > 100 and download > 5:  # More sensitive download detection
             is_anomaly = True
+            severity = 'low'
+            
+            # Adjust severity based on the magnitude of the spike
+            if download > 5120:  # More than 5KB/s
+                severity = 'high'
+            elif download > 1024:  # More than 1KB/s
+                severity = 'medium'
+                
             anomaly_info = {
                 'type': "download_spike",
-                'description': f"Sudden download spike detected ({format_bandwidth(download)})",
-                'severity': 'medium',
+                'description': f"Sudden download spike detected ({download_formatted})",
+                'severity': severity,
                 'probable_cause': top_cause['description'] if top_cause else "Unknown",
                 'cause_probability': top_cause['probability_pct'] if top_cause else "N/A",
                 'detailed_causes': cause_analysis['probable_causes']
             }
-        elif upload > 1000 and download > 1000:
+        elif upload > 5120 or download > 5120:  # Direct high bandwidth usage detection (5KB threshold)
             is_anomaly = True
             anomaly_info = {
                 'type': "high_bandwidth_usage",
-                'description': f"High bandwidth usage detected (Up: {format_bandwidth(upload)}, Down: {format_bandwidth(download)})",
-                'severity': 'high' if upload + download > 5000 else 'medium',
+                'description': f"High bandwidth usage detected (Up: {upload_formatted}, Down: {download_formatted})",
+                'severity': 'high',
                 'probable_cause': top_cause['description'] if top_cause else "Unknown",
                 'cause_probability': top_cause['probability_pct'] if top_cause else "N/A",
                 'detailed_causes': cause_analysis['probable_causes']
@@ -1015,17 +1080,29 @@ class AINetworkMonitor:
         cooldown_key = f"{device_id}_{anomaly_type}"
         current_time = time.time()
         
-        if cooldown_key in self.notification_cooldown:
-            last_notification = self.notification_cooldown[cooldown_key]
-            if current_time - last_notification < self.cooldown_period:
-                return False  # Still in cooldown
+        # If it's a high-bandwidth spike (>5KB), bypass the cooldown
+        # Check if the anomaly type contains terms related to spikes
+        if 'spike' in anomaly_type.lower() or 'high' in anomaly_type.lower():
+            # Allow more frequent notifications for spikes by reducing the cooldown
+            if cooldown_key in self.notification_cooldown:
+                last_notification = self.notification_cooldown[cooldown_key]
+                # Use a shorter cooldown (30 seconds) for spike notifications instead of 5 minutes
+                if current_time - last_notification < 30:  # 30 seconds cooldown for spikes
+                    return False  # Still in cooldown
+        else:
+            # Use normal cooldown for other types of anomalies
+            if cooldown_key in self.notification_cooldown:
+                last_notification = self.notification_cooldown[cooldown_key]
+                if current_time - last_notification < self.cooldown_period:
+                    return False  # Still in cooldown
         
         # Update cooldown timestamp
         self.notification_cooldown[cooldown_key] = current_time
         return True  # Not in cooldown
-        
+    
+
     def process_data(self, devices_data):
-        """Process the fetched data and update the database with enhanced cause analysis"""
+        """Process the fetched data with improved severity indicators based on bandwidth levels"""
         if not devices_data:
             return False
         
@@ -1054,49 +1131,115 @@ class AINetworkMonitor:
                 data_point = self.update_device_history(device_id, device, upload, download)
                 data_point['device_id'] = device_id
                 
-                # Make sure we have the device_history_cache attribute
+                # Cache recent device history for pattern analysis
                 if not hasattr(self, 'device_history_cache'):
                     self.device_history_cache = {}
-                
-                # Cache recent device history for pattern analysis
                 self.device_history_cache[device_id] = self.device_data.get(device_id, [])[-10:]
                 
-                # AI-based anomaly detection
-                is_anomaly, anomaly_info = self.ml_manager.detect_anomaly(device_id, data_point)
+                # Get previous values to calculate change
+                prev_upload, prev_download = self.previous_bandwidth.get(device_id, (0.0, 0.0))
+                upload_change = upload - prev_upload
+                download_change = download - prev_download
                 
-                # If anomaly detected, add notification
-                if is_anomaly and anomaly_info:
-                    anomaly_type = anomaly_info['type']
-                    description = anomaly_info['description']
-                    severity = anomaly_info['severity']
-                    probable_cause = anomaly_info.get('probable_cause', 'Unknown')
+                # Format bandwidth values for display
+                upload_formatted = format_bandwidth(upload)
+                download_formatted = format_bandwidth(download)
+                upload_change_formatted = format_bandwidth(abs(upload_change))
+                download_change_formatted = format_bandwidth(abs(download_change))
+                
+                # IMPROVED SEVERITY DETECTION
+                # Determine severity and type based on bandwidth levels
+                severity, severity_desc = determine_severity(upload, download)
+                
+                # Determine which bandwidth direction to focus on
+                if upload > download:
+                    primary_direction = "upload"
+                    primary_value = upload
+                    primary_formatted = upload_formatted
+                    primary_change = upload_change
+                    primary_change_formatted = upload_change_formatted
+                else:
+                    primary_direction = "download"
+                    primary_value = download
+                    primary_formatted = download_formatted
+                    primary_change = download_change
+                    primary_change_formatted = download_change_formatted
+                
+                # Determine if we should notify and what type of notification
+                should_notify = False
+                anomaly_type = f"{primary_direction}_activity"
+                description = ""
+                
+                # Check for very high bandwidth (>= 50KB)
+                if max(upload, download) >= 51200:  # 50KB
+                    should_notify = True
+                    anomaly_type = f"critical_{primary_direction}"
+                    description = f"Critical {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for high bandwidth (15KB - 50KB)
+                elif max(upload, download) >= 15360:  # 15KB
+                    should_notify = True
+                    anomaly_type = f"high_{primary_direction}"
+                    description = f"High {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for moderate bandwidth (5KB - 15KB)
+                elif max(upload, download) >= 5120:  # 5KB
+                    should_notify = True
+                    anomaly_type = f"medium_{primary_direction}"
+                    description = f"Medium {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for bandwidth in the 4-6KB range (keeping this special case)
+                elif (4000 <= upload <= 6000) or (4000 <= download <= 6000):
+                    should_notify = True
+                    anomaly_type = f"{primary_direction}_4_6kb_range"
+                    description = f"{primary_direction.capitalize()} in 4-6KB range: {primary_formatted}"
+                
+                # Check for low-medium bandwidth (1KB - 5KB)
+                elif max(upload, download) >= 1024:  # 1KB
+                    should_notify = True
+                    anomaly_type = f"low_medium_{primary_direction}"
+                    description = f"Low-medium {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for significant changes in low bandwidth
+                elif abs(upload_change) > 100 or abs(download_change) > 100:
+                    should_notify = True
+                    anomaly_type = f"{primary_direction}_change"
+                    description = f"{primary_direction.capitalize()} change detected: {primary_change_formatted} (current: {primary_formatted})"
+                
+                # Map string severity to numeric value
+                severity_level = 1  # Default: low
+                if severity == 'critical':
+                    severity_level = 4  # Critical (new highest level)
+                elif severity == 'high':
+                    severity_level = 3  # High
+                elif severity == 'medium':
+                    severity_level = 2  # Medium
+                elif severity == 'low-medium':
+                    severity_level = 1  # Low-Medium (treated as low for DB)
+                
+                # If any of our conditions triggered a notification
+                if should_notify:
+                    device_info = f"{device.get('HostName', 'Unknown')} ({device.get('IPAddress', 'Unknown IP')})"
+                    remarks = f"{description} for {device_info}"
                     
-                    # Check if notification is in cooldown
-                    if self.check_notification_cooldown(device_id, anomaly_type):
-                        device_info = f"{device.get('HostName', 'Unknown')} ({device.get('IPAddress', 'Unknown IP')})"
-                        remarks = f"{description} for {device_info}"
-                        
-                        # Map severity string to numeric level
-                        severity_level = self.alert_levels.get(severity, 1)
-                        
-                        notification_result = self.device_manager.add_notification(
-                            device_id, anomaly_type, severity_level, remarks, probable_cause
-                        )
-                        if notification_result:
-                            notification_sent += 1
-                            
-                            # Log more detailed information including probable causes
-                            detailed_causes = anomaly_info.get('detailed_causes', [])
-                            causes_str = ", ".join([
-                                f"{c['description']} ({c['probability_pct']})" 
-                                for c in detailed_causes[:2]
-                            ]) if detailed_causes else "Unknown"
-                            
-                            logging.info(
-                                f"Anomaly detected for device {device_id}: {anomaly_type} ({severity}). "
-                                f"Probable causes: {causes_str}"
-                            )
-                            
+                    # Additional bandwidth context for clearer notifications
+                    if upload > 1024 and download > 1024:
+                        remarks += f" [Up: {upload_formatted}, Down: {download_formatted}]"
+                    
+                    # Get probable cause using pattern analysis
+                    cause_analysis = self.ml_manager.analyze_traffic_pattern(data_point, self.device_history_cache.get(device_id, []))
+                    top_cause = cause_analysis['probable_causes'][0] if cause_analysis['probable_causes'] else None
+                    probable_cause = top_cause['description'] if top_cause else 'Unknown'
+                    
+                    # Force notification directly to database, bypass all cooldowns
+                    notification_result = self.direct_notify(
+                        device_id, anomaly_type, severity_level, remarks, probable_cause
+                    )
+                    
+                    if notification_result:
+                        notification_sent += 1
+                        logging.info(f"BANDWIDTH NOTIFICATION ({severity.upper()}): {anomaly_type} for device {device_id}: {remarks}")
+                
                 # Update bandwidth in database
                 if self.device_manager.update_bandwidth(device_id, upload, download):
                     successful_updates += 1
@@ -1107,14 +1250,7 @@ class AINetworkMonitor:
             if successful_updates > 0:
                 logging.info(f"Successfully processed data for {successful_updates} devices")
             if notification_sent > 0:
-                logging.info(f"Sent {notification_sent} anomaly notifications with cause analysis")
-
-            self.db_manager.commit()
-
-            if successful_updates > 0:
-                logging.info(f"Successfully processed data for {successful_updates} devices")
-            if notification_sent > 0:
-                logging.info(f"Sent {notification_sent} anomaly notifications with cause analysis")           
+                logging.info(f"Sent {notification_sent} bandwidth notifications")
 
             try:
                 self.device_manager.update_block_status()
@@ -1126,6 +1262,240 @@ class AINetworkMonitor:
         except Exception as e:
             logging.error(f"Unexpected error during processing: {e}")
             return False
+        
+    def direct_notify(self, device_id, anomaly_type, severity, remarks, probable_cause=None):
+        """Force a notification to be saved to database with improved severity indicators"""
+        try:
+            # Map severity to numeric level and text prefix
+            severity_level = severity
+            if isinstance(severity, str):
+                if severity.lower() == 'critical':
+                    severity_level = 4
+                elif severity.lower() == 'high':
+                    severity_level = 3
+                elif severity.lower() == 'medium':
+                    severity_level = 2
+                else:
+                    severity_level = 1
+            
+            # Use existing notification table structure
+            cause_info = ""
+            if probable_cause:
+                cause_info = f" Probable cause: {probable_cause}"
+            
+            full_remarks = f"{remarks}{cause_info}"
+            
+            # Limit remarks to fit in the varchar field
+            if len(full_remarks) > 255:
+                full_remarks = full_remarks[:253] + "..."
+            
+            # Prepend severity to remarks with improved labels
+            severity_text = ""
+            if severity_level == 4:
+                severity_text = "[CRITICAL] "
+            elif severity_level == 3:
+                severity_text = "[HIGH] "
+            elif severity_level == 2:
+                severity_text = "[MEDIUM] "
+            elif severity_level == 1:
+                severity_text = "[LOW] "
+                
+            complete_remarks = f"{severity_text}{full_remarks}"
+            
+            # Insert directly into database with retry logic
+            max_attempts = 3
+            attempt = 0
+            success = False
+            
+            while attempt < max_attempts and not success:
+                try:
+                    query = """
+                    INSERT INTO notification (device_id, types, remarks) 
+                    VALUES (%s, %s, %s)
+                    """
+                    
+                    result = self.db_manager.execute_and_commit(query, (device_id, anomaly_type, complete_remarks))
+                    
+                    if result:
+                        logging.info(f"NOTIFICATION SAVED: {anomaly_type} (severity: {severity_level}) for device {device_id}")
+                        success = True
+                    else:
+                        # If the first attempt fails, try again
+                        attempt += 1
+                        time.sleep(0.2)  # Brief delay before retry
+                except Exception as e:
+                    logging.error(f"Error saving notification (attempt {attempt+1}): {e}")
+                    attempt += 1
+                    time.sleep(0.2)  # Brief delay before retry
+            
+            return success
+            
+        except Exception as e:
+            logging.error(f"Failed to create notification: {e}")
+            return False
+        
+    def process_data(self, devices_data):
+        """Process the fetched data with improved severity indicators based on bandwidth levels"""
+        if not devices_data:
+            return False
+        
+        try:
+            successful_updates = 0
+            notification_sent = 0
+            
+            for device in devices_data:
+                device_id = self.device_manager.insert_or_update_device(device)
+                
+                if not device_id:
+                    continue
+                
+                # Convert string values to float, handling possible conversion errors
+                try:
+                    upload = float(device.get('UpRate', 0))
+                    download = float(device.get('DownRate', 0))
+                except (ValueError, TypeError) as e:
+                    logging.warning(f"Error converting bandwidth values for device {device_id}: {e}")
+                    upload, download = 0.0, 0.0
+                
+                # Add device_id to the data point for reference
+                device['device_id'] = device_id
+                
+                # Update device history with current data point
+                data_point = self.update_device_history(device_id, device, upload, download)
+                data_point['device_id'] = device_id
+                
+                # Cache recent device history for pattern analysis
+                if not hasattr(self, 'device_history_cache'):
+                    self.device_history_cache = {}
+                self.device_history_cache[device_id] = self.device_data.get(device_id, [])[-10:]
+                
+                # Get previous values to calculate change
+                prev_upload, prev_download = self.previous_bandwidth.get(device_id, (0.0, 0.0))
+                upload_change = upload - prev_upload
+                download_change = download - prev_download
+                
+                # Format bandwidth values for display
+                upload_formatted = format_bandwidth(upload)
+                download_formatted = format_bandwidth(download)
+                upload_change_formatted = format_bandwidth(abs(upload_change))
+                download_change_formatted = format_bandwidth(abs(download_change))
+                
+                # IMPROVED SEVERITY DETECTION
+                # Determine severity and type based on bandwidth levels
+                severity, severity_desc = determine_severity(upload, download)
+                
+                # Determine which bandwidth direction to focus on
+                if upload > download:
+                    primary_direction = "upload"
+                    primary_value = upload
+                    primary_formatted = upload_formatted
+                    primary_change = upload_change
+                    primary_change_formatted = upload_change_formatted
+                else:
+                    primary_direction = "download"
+                    primary_value = download
+                    primary_formatted = download_formatted
+                    primary_change = download_change
+                    primary_change_formatted = download_change_formatted
+                
+                # Determine if we should notify and what type of notification
+                should_notify = False
+                anomaly_type = f"{primary_direction}_activity"
+                description = ""
+                
+                # Check for very high bandwidth (>= 50KB)
+                if max(upload, download) >= 51200:  # 50KB
+                    should_notify = True
+                    anomaly_type = f"critical_{primary_direction}"
+                    description = f"Critical {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for high bandwidth (15KB - 50KB)
+                elif max(upload, download) >= 15360:  # 15KB
+                    should_notify = True
+                    anomaly_type = f"high_{primary_direction}"
+                    description = f"High {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for moderate bandwidth (5KB - 15KB)
+                elif max(upload, download) >= 5120:  # 5KB
+                    should_notify = True
+                    anomaly_type = f"medium_{primary_direction}"
+                    description = f"Medium {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for bandwidth in the 4-6KB range (keeping this special case)
+                elif (4000 <= upload <= 6000) or (4000 <= download <= 6000):
+                    should_notify = True
+                    anomaly_type = f"{primary_direction}_4_6kb_range"
+                    description = f"{primary_direction.capitalize()} in 4-6KB range: {primary_formatted}"
+                
+                # Check for low-medium bandwidth (1KB - 5KB)
+                elif max(upload, download) >= 1024:  # 1KB
+                    should_notify = True
+                    anomaly_type = f"low_medium_{primary_direction}"
+                    description = f"Low-medium {primary_direction} detected: {primary_formatted} - {severity_desc}"
+                
+                # Check for significant changes in low bandwidth
+                elif abs(upload_change) > 100 or abs(download_change) > 100:
+                    should_notify = True
+                    anomaly_type = f"{primary_direction}_change"
+                    description = f"{primary_direction.capitalize()} change detected: {primary_change_formatted} (current: {primary_formatted})"
+                
+                # Map string severity to numeric value
+                severity_level = 1  # Default: low
+                if severity == 'critical':
+                    severity_level = 4  # Critical (new highest level)
+                elif severity == 'high':
+                    severity_level = 3  # High
+                elif severity == 'medium':
+                    severity_level = 2  # Medium
+                elif severity == 'low-medium':
+                    severity_level = 1  # Low-Medium (treated as low for DB)
+                
+                # If any of our conditions triggered a notification
+                if should_notify:
+                    device_info = f"{device.get('HostName', 'Unknown')} ({device.get('IPAddress', 'Unknown IP')})"
+                    remarks = f"{description} for {device_info}"
+                    
+                    # Additional bandwidth context for clearer notifications
+                    if upload > 1024 and download > 1024:
+                        remarks += f" [Up: {upload_formatted}, Down: {download_formatted}]"
+                    
+                    # Get probable cause using pattern analysis
+                    cause_analysis = self.ml_manager.analyze_traffic_pattern(data_point, self.device_history_cache.get(device_id, []))
+                    top_cause = cause_analysis['probable_causes'][0] if cause_analysis['probable_causes'] else None
+                    probable_cause = top_cause['description'] if top_cause else 'Unknown'
+                    
+                    # Force notification directly to database, bypass all cooldowns
+                    notification_result = self.direct_notify(
+                        device_id, anomaly_type, severity_level, remarks, probable_cause
+                    )
+                    
+                    if notification_result:
+                        notification_sent += 1
+                        logging.info(f"BANDWIDTH NOTIFICATION ({severity.upper()}): {anomaly_type} for device {device_id}: {remarks}")
+                
+                # Update bandwidth in database
+                if self.device_manager.update_bandwidth(device_id, upload, download):
+                    successful_updates += 1
+            
+            # Commit all changes
+            self.db_manager.commit()
+            
+            if successful_updates > 0:
+                logging.info(f"Successfully processed data for {successful_updates} devices")
+            if notification_sent > 0:
+                logging.info(f"Sent {notification_sent} bandwidth notifications")
+
+            try:
+                self.device_manager.update_block_status()
+            except Exception as e:
+                logging.error(f"Error checking time control rules: {e}") 
+                
+            return True
+            
+        except Exception as e:
+            logging.error(f"Unexpected error during processing: {e}")
+            return False
+
             
     def run(self):
         """Run the AI network monitor with adaptive polling interval"""
